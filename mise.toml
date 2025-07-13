@@ -46,4 +46,4 @@ run = "uv run pre-commit run --all-files"
 
 [tasks.poll-ci]
 description = "Poll CI status for current commit"
-run = "uv run python scripts/poll_ci_status.py"
+run = "uv run fetch-ci-logs --poll --verbose"

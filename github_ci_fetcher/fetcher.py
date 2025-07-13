@@ -208,3 +208,15 @@ class GitHubCIFetcher:
             return branch_data["commit"]["sha"]
         except requests.RequestException as e:
             raise ValueError(f"Failed to get branch '{branch_name}' head SHA: {e}")
+
+    def get_workflow_runs_for_commit(self, owner: str, repo: str, commit_sha: str) -> list[dict[str, Any]]:
+        """Get workflow runs for a specific commit."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
+        params = {"head_sha": commit_sha, "per_page": 10}
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            return response.json().get("workflow_runs", [])
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to fetch workflow runs for commit {commit_sha}: {e}")

@@ -56,6 +56,12 @@ fetch-ci-logs --raw-logs
 
 # Show logs for a specific job ID
 fetch-ci-logs --job-id 12345678
+
+# Poll CI status until all workflows complete
+fetch-ci-logs --poll
+
+# Poll CI status and stop on first failure
+fetch-ci-logs --poll-until-failure
 ```
 
 ## Features
@@ -65,6 +71,7 @@ fetch-ci-logs --job-id 12345678
 - **Smart log filtering** - Shows only error-related content by default
 - **Verbose mode** - Get detailed information about the repository and commit
 - **Raw log access** - Full log output for debugging when needed
+- **CI status polling** - Monitor workflow progress in real-time with `--poll` options
 
 ## Authentication
 
@@ -91,6 +98,8 @@ GITHUB_TOKEN=your_token_here
 | `--show-logs` | Show detailed error logs for failed steps only |
 | `--raw-logs` | Show complete raw logs for all failed jobs |
 | `--job-id INTEGER` | Show raw logs for specific job ID only |
+| `--poll` | Poll CI status until all workflows complete |
+| `--poll-until-failure` | Poll CI status until first failure or all complete |
 | `--help` | Show help message |
 
 **Note**: Target options (`--branch`, `--commit`, `--pr`) are mutually exclusive. If none specified, uses current branch and latest commit.
@@ -112,6 +121,12 @@ fetch-ci-logs --pr 42
 
 # Debug a specific job
 fetch-ci-logs --job-id 45867092486 --raw-logs
+
+# Monitor CI progress in real-time
+fetch-ci-logs --poll --verbose
+
+# Stop monitoring on first failure
+fetch-ci-logs --poll-until-failure
 ```
 
 ## Requirements
