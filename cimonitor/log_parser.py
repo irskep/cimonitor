@@ -12,66 +12,89 @@ class LogParser:
 
         for step in failed_steps:
             step_name = step["name"]
-            step_lines = []
 
-            # GitHub Actions uses ##[group]Run STEP_NAME and ##[endgroup] as boundaries
-            # Look for the step by name in the ##[group]Run pattern
-            capturing = False
+            # Try exact name matching first
+            step_content = LogParser._extract_step_by_exact_name(log_lines, step_name)
+            if step_content:
+                step_logs[step_name] = step_content
+                continue
 
-            for i, line in enumerate(log_lines):
-                # Start capturing when we find the step's group marker
-                if f"##[group]Run {step_name}" in line:
-                    capturing = True
-                    step_lines.append(line)
-                elif capturing:
-                    step_lines.append(line)
-
-                    # Stop capturing when we hit the endgroup for this step
-                    if "##[endgroup]" in line:
-                        # Continue capturing a few more lines for errors that appear after endgroup
-                        for j in range(i + 1, min(i + 10, len(log_lines))):
-                            next_line = log_lines[j]
-                            step_lines.append(next_line)
-
-                            # Stop if we hit another group or significant marker
-                            if "##[group]" in next_line or "Post job cleanup" in next_line:
-                                break
-                        break
-
-            if step_lines:
-                step_logs[step_name] = "\n".join(step_lines)
-            else:
-                # Fallback: try partial name matching for steps with complex names
-                for i, line in enumerate(log_lines):
-                    # Look for key words from the step name in group markers
-                    if "##[group]Run" in line and any(
-                        word.lower() in line.lower() for word in step_name.split() if len(word) > 3
-                    ):
-                        capturing = True
-                        step_lines = [line]
-
-                        # Capture until endgroup
-                        for j in range(i + 1, len(log_lines)):
-                            next_line = log_lines[j]
-                            step_lines.append(next_line)
-
-                            if "##[endgroup]" in next_line:
-                                # Get a few more lines for error context
-                                for k in range(j + 1, min(j + 10, len(log_lines))):
-                                    error_line = log_lines[k]
-                                    step_lines.append(error_line)
-                                    if (
-                                        "##[group]" in error_line
-                                        or "Post job cleanup" in error_line
-                                    ):
-                                        break
-                                break
-
-                        if step_lines:
-                            step_logs[step_name] = "\n".join(step_lines)
-                        break
+            # Fallback: try partial name matching
+            step_content = LogParser._extract_step_by_partial_name(log_lines, step_name)
+            if step_content:
+                step_logs[step_name] = step_content
 
         return step_logs
+
+    @staticmethod
+    def _extract_step_by_exact_name(log_lines: list[str], step_name: str) -> str | None:
+        """Extract step logs using exact name matching."""
+        step_lines = []
+        capturing = False
+
+        for i, line in enumerate(log_lines):
+            # Early return if we find the exact step
+            if f"##[group]Run {step_name}" in line:
+                capturing = True
+                step_lines.append(line)
+                continue
+
+            if not capturing:
+                continue
+
+            step_lines.append(line)
+
+            # Stop capturing when we hit the endgroup for this step
+            if "##[endgroup]" in line:
+                # Continue capturing a few more lines for errors that appear after endgroup
+                LogParser._capture_post_endgroup_lines(log_lines, i, step_lines)
+                break
+
+        return "\n".join(step_lines) if step_lines else None
+
+    @staticmethod
+    def _extract_step_by_partial_name(log_lines: list[str], step_name: str) -> str | None:
+        """Extract step logs using partial name matching as fallback."""
+        keywords = [word for word in step_name.split() if len(word) > 3]
+        if not keywords:
+            return None
+
+        for i, line in enumerate(log_lines):
+            # Look for key words from the step name in group markers
+            if "##[group]Run" not in line:
+                continue
+
+            if not any(word.lower() in line.lower() for word in keywords):
+                continue
+
+            step_lines = [line]
+
+            # Capture until endgroup
+            for j in range(i + 1, len(log_lines)):
+                next_line = log_lines[j]
+                step_lines.append(next_line)
+
+                if "##[endgroup]" in next_line:
+                    # Get a few more lines for error context
+                    LogParser._capture_post_endgroup_lines(log_lines, j, step_lines)
+                    break
+
+            return "\n".join(step_lines) if step_lines else None
+
+        return None
+
+    @staticmethod
+    def _capture_post_endgroup_lines(
+        log_lines: list[str], endgroup_index: int, step_lines: list[str]
+    ) -> None:
+        """Capture additional lines after ##[endgroup] for error context."""
+        for k in range(endgroup_index + 1, min(endgroup_index + 10, len(log_lines))):
+            error_line = log_lines[k]
+            step_lines.append(error_line)
+
+            # Stop if we hit another group or significant marker
+            if "##[group]" in error_line or "Post job cleanup" in error_line:
+                break
 
     @staticmethod
     def filter_error_lines(step_log: str) -> list[str]:
@@ -79,25 +102,25 @@ class LogParser:
         step_lines = step_log.split("\n")
         shown_lines = []
 
+        error_keywords = ["error", "failed", "failure", "❌", "✗", "exit code", "##[error]"]
+
         for line in step_lines:
-            # Show lines with error indicators or important info
-            if (
-                any(
-                    keyword in line.lower()
-                    for keyword in [
-                        "error",
-                        "failed",
-                        "failure",
-                        "❌",
-                        "✗",
-                        "exit code",
-                        "##[error]",
-                    ]
-                )
-                or "##[group]" in line
-                or "##[endgroup]" in line
-                or not line.startswith("2025-")
-            ):  # Include non-timestamp lines
+            # Early continue for empty lines
+            if not line.strip():
+                continue
+
+            # Include lines with error keywords
+            if any(keyword in line.lower() for keyword in error_keywords):
+                shown_lines.append(line)
+                continue
+
+            # Include GitHub Actions markers
+            if "##[group]" in line or "##[endgroup]" in line:
+                shown_lines.append(line)
+                continue
+
+            # Include non-timestamp lines (command output, not just timestamps)
+            if not line.startswith("2025-"):
                 shown_lines.append(line)
 
         return shown_lines

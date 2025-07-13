@@ -2,12 +2,17 @@
 
 import sys
 import time
-from datetime import datetime
 
 import click
 
 from .fetcher import GitHubCIFetcher
-from .log_parser import LogParser
+from .services import (
+    get_ci_status,
+    get_job_details_for_status,
+    get_job_logs,
+    retry_failed_workflows,
+    watch_ci_status,
+)
 
 
 # Shared options for targeting commits/PRs/branches
@@ -82,76 +87,22 @@ def cli(ctx):
 def status(branch, commit, pr, verbose):
     """Show CI status for the target commit/branch/PR."""
     try:
-        # Validate options first, before any API calls
         validate_target_options(branch, commit, pr)
-
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
             fetcher, branch, commit, pr, verbose
         )
 
-        # Find failed jobs for the target commit
-        failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
+        # Get CI status using business logic
+        ci_status = get_ci_status(fetcher, owner, repo_name, commit_sha, target_description)
 
-        if not failed_check_runs:
+        # Early return for no failures
+        if not ci_status.has_failures:
             click.echo(f"✅ No failing CI jobs found for {target_description}!")
             return
 
-        click.echo(f"❌ Found {len(failed_check_runs)} failing CI job(s) for {target_description}:")
-        click.echo()
-
-        for i, check_run in enumerate(failed_check_runs, 1):
-            name = check_run.get("name", "Unknown Job")
-            conclusion = check_run.get("conclusion", "unknown")
-            html_url = check_run.get("html_url", "")
-
-            click.echo(f"{'=' * 60}")
-            click.echo(f"FAILED JOB #{i}: {name}")
-            click.echo(f"Status: {conclusion}")
-            click.echo(f"URL: {html_url}")
-            click.echo(f"{'=' * 60}")
-
-            # Try to get workflow run info and step details
-            if "actions/runs" in html_url:
-                try:
-                    # Extract run ID from URL
-                    run_id = html_url.split("/runs/")[1].split("/")[0]
-                    jobs = fetcher.get_workflow_jobs(owner, repo_name, int(run_id))
-
-                    for job in jobs:
-                        if job.get("conclusion") == "failure":
-                            job_name = job.get("name", "Unknown")
-
-                            # Show failed steps summary
-                            failed_steps = fetcher.get_failed_steps(job)
-
-                            if failed_steps:
-                                click.echo(f"\\n📋 Failed Steps in {job_name}:")
-                                for step in failed_steps:
-                                    step_name = step["name"]
-                                    step_num = step["number"]
-                                    duration = "Unknown"
-
-                                    if step["started_at"] and step["completed_at"]:
-                                        start = datetime.fromisoformat(
-                                            step["started_at"].replace("Z", "+00:00")
-                                        )
-                                        end = datetime.fromisoformat(
-                                            step["completed_at"].replace("Z", "+00:00")
-                                        )
-                                        duration = f"{(end - start).total_seconds():.1f}s"
-
-                                    click.echo(
-                                        f"  ❌ Step {step_num}: {step_name} (took {duration})"
-                                    )
-
-                            click.echo()
-                except Exception as e:
-                    click.echo(f"Error processing job details: {e}")
-            else:
-                click.echo("Cannot retrieve detailed information for this check run type")
-
-            click.echo()
+        # Display failed jobs
+        _display_failed_jobs_status(fetcher, owner, repo_name, ci_status)
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -169,135 +120,19 @@ def status(branch, commit, pr, verbose):
 def logs(branch, commit, pr, verbose, raw, job_id):
     """Show error logs for failed CI jobs."""
     try:
-        # Validate options first, before any API calls
         validate_target_options(branch, commit, pr)
-
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
             fetcher, branch, commit, pr, verbose
         )
 
-        # Handle specific job ID request
-        if job_id:
-            click.echo(f"📄 Raw logs for job ID {job_id}:")
-            click.echo("=" * 80)
-            job_info = fetcher.get_job_by_id(owner, repo_name, job_id)
-            click.echo(f"Job: {job_info.get('name', 'Unknown')}")
-            click.echo(f"Status: {job_info.get('conclusion', 'unknown')}")
-            click.echo(f"URL: {job_info.get('html_url', '')}")
-            click.echo("-" * 80)
-            logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
-            click.echo(logs_content)
-            return
-
-        # Handle raw logs for all failed jobs
-        if raw:
-            all_jobs = fetcher.get_all_jobs_for_commit(owner, repo_name, commit_sha)
-            failed_jobs = [job for job in all_jobs if job.get("conclusion") == "failure"]
-
-            if not failed_jobs:
-                click.echo("✅ No failing jobs found for this commit!")
-                return
-
-            click.echo(f"📄 Raw logs for {len(failed_jobs)} failed job(s):")
-            click.echo()
-
-            for i, job in enumerate(failed_jobs, 1):
-                job_name = job.get("name", "Unknown")
-                job_id = job.get("id")
-
-                click.echo(f"{'=' * 80}")
-                click.echo(f"RAW LOGS #{i}: {job_name} (ID: {job_id})")
-                click.echo(f"{'=' * 80}")
-
-                if job_id:
-                    logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
-                    click.echo(logs_content)
-                else:
-                    click.echo("No job ID available")
-
-                click.echo("\\n" + "=" * 80 + "\\n")
-            return
-
-        # Default: show filtered error logs
-        failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
-
-        if not failed_check_runs:
-            click.echo(f"✅ No failing CI jobs found for {target_description}!")
-            return
-
-        click.echo(
-            f"📄 Error logs for {len(failed_check_runs)} failing job(s) in {target_description}:"
+        # Get logs using business logic
+        log_result = get_job_logs(
+            fetcher, owner, repo_name, commit_sha, target_description, job_id, raw
         )
-        click.echo()
 
-        for i, check_run in enumerate(failed_check_runs, 1):
-            name = check_run.get("name", "Unknown Job")
-            html_url = check_run.get("html_url", "")
-
-            click.echo(f"{'=' * 60}")
-            click.echo(f"LOGS #{i}: {name}")
-            click.echo(f"{'=' * 60}")
-
-            # Try to get workflow run info and step details
-            if "actions/runs" in html_url:
-                try:
-                    # Extract run ID from URL
-                    run_id = html_url.split("/runs/")[1].split("/")[0]
-                    jobs = fetcher.get_workflow_jobs(owner, repo_name, int(run_id))
-
-                    for job in jobs:
-                        if job.get("conclusion") == "failure":
-                            job_name = job.get("name", "Unknown")
-                            job_id = job.get("id")
-
-                            # Get failed steps
-                            failed_steps = fetcher.get_failed_steps(job)
-
-                            if job_id and failed_steps:
-                                logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
-
-                                # Extract logs for just the failed steps
-                                step_logs = LogParser.extract_step_logs(logs_content, failed_steps)
-
-                                if step_logs:
-                                    for step_name, step_log in step_logs.items():
-                                        click.echo(f"\\n📄 Logs for Failed Step: {step_name}")
-                                        click.echo("-" * 50)
-
-                                        # Show only the step-specific logs
-                                        if step_log.strip():
-                                            # Filter for error-related content within the step
-                                            shown_lines = LogParser.filter_error_lines(step_log)
-
-                                            if shown_lines:
-                                                for line in shown_lines:
-                                                    if line.strip():
-                                                        click.echo(line)
-                                            else:
-                                                # Fallback to last few lines of the step
-                                                step_lines = step_log.split("\\n")
-                                                for line in step_lines[-10:]:
-                                                    if line.strip():
-                                                        click.echo(line)
-                                        else:
-                                            click.echo("No logs found for this step")
-                                else:
-                                    click.echo(
-                                        f"\\n📄 Could not extract step-specific logs for {job_name}"
-                                    )
-                                    click.echo("💡 This might be due to log format differences")
-                            else:
-                                click.echo("Could not retrieve job logs")
-
-                            click.echo()
-
-                except Exception as e:
-                    click.echo(f"Error processing job details: {e}")
-            else:
-                click.echo("Cannot retrieve detailed information for this check run type")
-
-            click.echo()
+        # Display logs based on type
+        _display_job_logs(log_result)
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -316,151 +151,25 @@ def logs(branch, commit, pr, verbose, raw, job_id):
 def watch(branch, commit, pr, verbose, until_complete, until_fail, retry):
     """Watch CI status with real-time updates."""
     try:
-        # Validate options first, before any API calls
         validate_target_options(branch, commit, pr)
-
-        # Validate watch options
-        if until_complete and until_fail:
-            click.echo("Error: Cannot specify both --until-complete and --until-fail", err=True)
-            sys.exit(1)
-
-        if retry is not None and retry < 1:
-            click.echo("Error: --retry must be a positive integer", err=True)
-            sys.exit(1)
-
-        if retry and (until_complete or until_fail):
-            click.echo(
-                "Error: Cannot specify --retry with other watch options (retry includes polling)",
-                err=True,
-            )
-            sys.exit(1)
+        _validate_watch_options(until_complete, until_fail, retry)
 
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
             fetcher, branch, commit, pr, verbose
         )
 
-        click.echo(f"🔄 Watching CI status for {target_description}...")
-        click.echo(f"📋 Commit: {commit_sha}")
-        if retry:
-            click.echo(f"🔁 Will retry failed jobs up to {retry} time(s)")
-        click.echo("Press Ctrl+C to stop watching\\n")
-
-        poll_interval = 10  # seconds
-        max_polls = 120  # 20 minutes total
-        poll_count = 0
-        retry_count = 0
-
-        try:
-            while poll_count < max_polls:
-                workflow_runs = fetcher.get_workflow_runs_for_commit(owner, repo_name, commit_sha)
-
-                if not workflow_runs:
-                    click.echo("⏳ No workflow runs found yet...")
-                else:
-                    click.echo(f"📊 Found {len(workflow_runs)} workflow run(s):")
-
-                    all_completed = True
-                    any_failed = False
-                    failed_runs = []
-
-                    for run in workflow_runs:
-                        name = run.get("name", "Unknown Workflow")
-                        status = run.get("status", "unknown")
-                        conclusion = run.get("conclusion")
-                        created_at = run.get("created_at", "")
-                        updated_at = run.get("updated_at", "")
-                        run_id = run.get("id")
-
-                        # Calculate duration
-                        try:
-                            start = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                            if updated_at:
-                                end = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
-                            else:
-                                end = datetime.now(start.tzinfo)
-                            duration = end - start
-                            duration_str = f"{int(duration.total_seconds())}s"
-                        except Exception:
-                            duration_str = "unknown"
-
-                        # Status emoji and tracking
-                        if status == "completed":
-                            if conclusion == "success":
-                                emoji = "✅"
-                            elif conclusion == "failure":
-                                emoji = "❌"
-                                any_failed = True
-                                failed_runs.append(run_id)
-                            elif conclusion == "cancelled":
-                                emoji = "🚫"
-                                any_failed = True
-                                failed_runs.append(run_id)
-                            else:
-                                emoji = "⚠️"
-                                any_failed = True
-                                failed_runs.append(run_id)
-                        elif status == "in_progress":
-                            emoji = "🔄"
-                            all_completed = False
-                        elif status == "queued":
-                            emoji = "⏳"
-                            all_completed = False
-                        else:
-                            emoji = "❓"
-                            all_completed = False
-
-                        click.echo(f"  {emoji} {name} ({status}) - {duration_str}")
-
-                    # Check stopping conditions
-                    if until_fail and any_failed:
-                        click.echo("\\n💥 Stopping on first failure!")
-                        sys.exit(1)
-
-                    if all_completed:
-                        if any_failed and retry and retry_count < retry:
-                            retry_count += 1
-                            click.echo(
-                                f"\\n🔁 Retrying failed jobs (attempt {retry_count}/{retry})..."
-                            )
-
-                            # Retry failed runs
-                            for run_id in failed_runs:
-                                if fetcher.rerun_failed_jobs(owner, repo_name, run_id):
-                                    click.echo(f"  ✅ Restarted failed jobs in run {run_id}")
-                                else:
-                                    click.echo(f"  ❌ Failed to restart jobs in run {run_id}")
-
-                            # Reset polling for the retry
-                            poll_count = 0
-                            time.sleep(30)  # Wait a bit longer before starting to poll again
-                            continue
-                        elif any_failed:
-                            if retry and retry_count >= retry:
-                                click.echo(
-                                    f"\\n💥 Max retries ({retry}) reached. Some workflows still failed!"
-                                )
-                            else:
-                                click.echo("\\n💥 Some workflows failed!")
-                            sys.exit(1)
-                        else:
-                            click.echo("\\n🎉 All workflows completed successfully!")
-                            sys.exit(0)
-
-                if poll_count < max_polls - 1:  # Don't sleep on last iteration
-                    click.echo(
-                        f"\\n⏰ Waiting {poll_interval}s... (poll {poll_count + 1}/{max_polls})"
-                    )
-                    time.sleep(poll_interval)
-
-                poll_count += 1
-
-            click.echo("\\n⏰ Polling timeout reached")
-            sys.exit(1)
-
-        except KeyboardInterrupt:
-            click.echo("\\n👋 Watching stopped by user")
-            sys.exit(0)
+        _display_watch_header(target_description, commit_sha, retry)
+        _run_watch_loop(
+            fetcher,
+            owner,
+            repo_name,
+            commit_sha,
+            target_description,
+            until_complete,
+            until_fail,
+            retry,
+        )
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -468,6 +177,255 @@ def watch(branch, commit, pr, verbose, until_complete, until_fail, retry):
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
+
+
+def _validate_watch_options(until_complete, until_fail, retry):
+    """Validate watch command options with early returns."""
+    if until_complete and until_fail:
+        click.echo("Error: Cannot specify both --until-complete and --until-fail", err=True)
+        sys.exit(1)
+
+    if retry is not None and retry < 1:
+        click.echo("Error: --retry must be a positive integer", err=True)
+        sys.exit(1)
+
+    if retry and (until_complete or until_fail):
+        click.echo(
+            "Error: Cannot specify --retry with other watch options (retry includes polling)",
+            err=True,
+        )
+        sys.exit(1)
+
+
+def _display_watch_header(target_description, commit_sha, retry):
+    """Display header information for watch command."""
+    click.echo(f"🔄 Watching CI status for {target_description}...")
+    click.echo(f"📋 Commit: {commit_sha}")
+    if retry:
+        click.echo(f"🔁 Will retry failed jobs up to {retry} time(s)")
+    click.echo("Press Ctrl+C to stop watching\\n")
+
+
+def _run_watch_loop(
+    fetcher, owner, repo_name, commit_sha, target_description, until_complete, until_fail, retry
+):
+    """Run the main watch polling loop."""
+    poll_interval = 10  # seconds
+    max_polls = 120  # 20 minutes total
+    poll_count = 0
+    retry_count = 0
+
+    try:
+        while poll_count < max_polls:
+            # Get status for this poll cycle
+            watch_result = watch_ci_status(
+                fetcher,
+                owner,
+                repo_name,
+                commit_sha,
+                target_description,
+                until_complete,
+                until_fail,
+                retry_count if retry else None,
+            )
+
+            # Display current status
+            _display_watch_status(watch_result)
+
+            # Handle watch result with early returns
+            if not watch_result["continue_watching"]:
+                _handle_watch_completion(watch_result, retry, retry_count)
+                return
+
+            if watch_result["status"] == "retry_needed" and retry and retry_count < retry:
+                retry_count += 1
+                click.echo(f"\\n🔁 Retrying failed jobs (attempt {retry_count}/{retry})...")
+
+                # Retry failed runs
+                retry_results = retry_failed_workflows(
+                    fetcher, owner, repo_name, watch_result["failed_runs"]
+                )
+                _display_retry_results(retry_results)
+
+                # Reset polling for the retry
+                poll_count = 0
+                time.sleep(30)  # Wait longer before starting to poll again
+                continue
+
+            # Continue polling
+            if poll_count < max_polls - 1:  # Don't sleep on last iteration
+                click.echo(f"\\n⏰ Waiting {poll_interval}s... (poll {poll_count + 1}/{max_polls})")
+                time.sleep(poll_interval)
+
+            poll_count += 1
+
+        click.echo("\\n⏰ Polling timeout reached")
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        click.echo("\\n👋 Watching stopped by user")
+        sys.exit(0)
+
+
+def _display_watch_status(watch_result):
+    """Display status for current watch poll."""
+    if watch_result["status"] == "no_runs":
+        click.echo("⏳ No workflow runs found yet...")
+        return
+
+    workflows = watch_result.get("workflows", [])
+    click.echo(f"📊 Found {len(workflows)} workflow run(s):")
+
+    for workflow in workflows:
+        click.echo(
+            f"  {workflow['emoji']} {workflow['name']} ({workflow['status']}) - {workflow['duration']}"
+        )
+
+
+def _handle_watch_completion(watch_result, retry, retry_count):
+    """Handle watch completion with appropriate exit codes."""
+    status = watch_result["status"]
+
+    if status == "stop_on_failure":
+        click.echo("\\n💥 Stopping on first failure!")
+        sys.exit(1)
+    elif status == "failed":
+        if retry and retry_count >= retry:
+            click.echo(f"\\n💥 Max retries ({retry}) reached. Some workflows still failed!")
+        else:
+            click.echo("\\n💥 Some workflows failed!")
+        sys.exit(1)
+    elif status == "success":
+        click.echo("\\n🎉 All workflows completed successfully!")
+        sys.exit(0)
+
+
+def _display_retry_results(retry_results):
+    """Display results of retry attempts."""
+    for run_id, success in retry_results.items():
+        if success:
+            click.echo(f"  ✅ Restarted failed jobs in run {run_id}")
+        else:
+            click.echo(f"  ❌ Failed to restart jobs in run {run_id}")
+
+
+def _display_job_logs(log_result):
+    """Display job logs based on result type."""
+    log_type = log_result["type"]
+
+    if log_type == "specific_job":
+        _display_specific_job_logs(log_result)
+    elif log_type == "raw_logs":
+        _display_raw_logs(log_result)
+    elif log_type == "filtered_logs":
+        _display_filtered_logs(log_result)
+
+
+def _display_specific_job_logs(log_result):
+    """Display logs for a specific job ID."""
+    job_info = log_result["job_info"]
+    logs = log_result["logs"]
+
+    click.echo(f"📄 Raw logs for job ID {job_info.get('id', 'Unknown')}:")
+    click.echo("=" * 80)
+    click.echo(f"Job: {job_info.get('name', 'Unknown')}")
+    click.echo(f"Status: {job_info.get('conclusion', 'unknown')}")
+    click.echo(f"URL: {job_info.get('html_url', '')}")
+    click.echo("-" * 80)
+    click.echo(logs)
+
+
+def _display_raw_logs(log_result):
+    """Display raw logs for all failed jobs."""
+    failed_jobs = log_result["failed_jobs"]
+
+    if not log_result["has_failures"]:
+        click.echo("✅ No failing jobs found for this commit!")
+        return
+
+    click.echo(f"📄 Raw logs for {len(failed_jobs)} failed job(s):")
+    click.echo()
+
+    for i, job_log in enumerate(failed_jobs, 1):
+        job = job_log["job"]
+        logs = job_log["logs"]
+        job_name = job.get("name", "Unknown")
+        job_id = job.get("id")
+
+        click.echo(f"{'=' * 80}")
+        click.echo(f"RAW LOGS #{i}: {job_name} (ID: {job_id})")
+        click.echo(f"{'=' * 80}")
+        click.echo(logs)
+        click.echo("\\n" + "=" * 80 + "\\n")
+
+
+def _display_filtered_logs(log_result):
+    """Display filtered error logs."""
+    target_description = log_result["target_description"]
+    failed_jobs = log_result["failed_jobs"]
+
+    if not log_result["has_failures"]:
+        click.echo(f"✅ No failing CI jobs found for {target_description}!")
+        return
+
+    click.echo(f"📄 Error logs for {len(failed_jobs)} failing job(s) in {target_description}:")
+    click.echo()
+
+    for i, job_log in enumerate(failed_jobs, 1):
+        click.echo(f"{'=' * 60}")
+        click.echo(f"LOGS #{i}: {job_log['name']}")
+        click.echo(f"{'=' * 60}")
+
+        if job_log.get("error"):
+            click.echo(job_log["error"])
+        elif job_log["step_logs"]:
+            for step_name, step_log in job_log["step_logs"].items():
+                click.echo(f"\\n📄 Logs for Failed Step: {step_name}")
+                click.echo("-" * 50)
+                if step_log.strip():
+                    click.echo(step_log)
+                else:
+                    click.echo("No logs found for this step")
+        else:
+            click.echo("Could not retrieve job logs")
+
+        click.echo()
+
+
+def _display_failed_jobs_status(fetcher, owner, repo_name, ci_status):
+    """Display failed jobs status with step details."""
+    click.echo(
+        f"❌ Found {len(ci_status.failed_check_runs)} failing CI job(s) for {ci_status.target_description}:"
+    )
+    click.echo()
+
+    for i, check_run in enumerate(ci_status.failed_check_runs, 1):
+        name = check_run.get("name", "Unknown Job")
+        conclusion = check_run.get("conclusion", "unknown")
+        html_url = check_run.get("html_url", "")
+
+        click.echo(f"{'=' * 60}")
+        click.echo(f"FAILED JOB #{i}: {name}")
+        click.echo(f"Status: {conclusion}")
+        click.echo(f"URL: {html_url}")
+        click.echo(f"{'=' * 60}")
+
+        # Get detailed job information
+        job_details = get_job_details_for_status(fetcher, owner, repo_name, check_run)
+
+        if not job_details:
+            click.echo("Cannot retrieve detailed information for this check run type")
+            click.echo()
+            continue
+
+        if job_details.failed_steps:
+            click.echo(f"\\n📋 Failed Steps in {job_details.name}:")
+            for step in job_details.failed_steps:
+                click.echo(f"  ❌ Step {step.number}: {step.name} (took {step.duration})")
+            click.echo()
+        else:
+            click.echo("Cannot retrieve detailed information for this check run type")
+            click.echo()
 
 
 def main():
