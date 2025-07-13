@@ -1,0 +1,95 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: uv sync --extra dev
+      
+      - name: Run tests
+        run: uv run pytest --cov=github_ci_fetcher --cov-report=xml -v
+      
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python
+        run: uv python install 3.13
+      
+      - name: Install dependencies
+        run: uv sync --extra dev
+      
+      - name: Run ruff check
+        run: uv run ruff check .
+      
+      - name: Run ruff format check
+        run: uv run ruff format --check .
+
+  cli-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python
+        run: uv python install 3.13
+      
+      - name: Install dependencies
+        run: uv sync
+      
+      - name: Test CLI help command
+        run: uv run fetch-ci-logs --help
+      
+      - name: Test CLI with invalid options (should fail gracefully)
+        run: |
+          # Test mutual exclusivity validation
+          output=$(uv run fetch-ci-logs --commit abc123 --branch main 2>&1 || true)
+          if echo "$output" | grep -q "Please specify only one"; then
+            echo "✅ Mutual exclusivity validation works"
+          else
+            echo "❌ Mutual exclusivity validation failed"
+            echo "Actual output: $output"
+            exit 1
+          fi

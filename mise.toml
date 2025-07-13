@@ -1,0 +1,49 @@
+[tools]
+python = "3.13"  # Development version, supports 3.10+
+
+[env]
+_.file = ".env"
+
+[tasks.ci-logs]
+description = "Fetch GitHub CI logs for the latest commit on current branch"
+run = "uv run fetch-ci-logs"
+
+[tasks.install]
+description = "Install dependencies"
+run = "uv sync"
+
+[tasks.install-dev]
+description = "Install development dependencies"
+run = "uv sync --extra dev"
+
+[tasks.test]
+description = "Run tests"
+run = "uv run pytest"
+
+[tasks.test-cov]
+description = "Run tests with coverage"
+run = "uv run pytest --cov=github_ci_fetcher --cov-report=html --cov-report=term"
+
+[tasks.lint]
+description = "Run linting"
+run = "uv run ruff check ."
+
+[tasks.format]
+description = "Format code"
+run = "uv run ruff format ."
+
+[tasks.format-check]
+description = "Check code formatting"
+run = "uv run ruff format --check ."
+
+[tasks.pre-commit-install]
+description = "Install pre-commit hooks"
+run = "uv run pre-commit install"
+
+[tasks.pre-commit]
+description = "Run pre-commit on all files"
+run = "uv run pre-commit run --all-files"
+
+[tasks.poll-ci]
+description = "Poll CI status for current commit"
+run = "uv run fetch-ci-logs --poll --verbose"
