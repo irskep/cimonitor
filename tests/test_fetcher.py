@@ -1,10 +1,10 @@
-"""Tests for the GitHub CI fetcher functionality."""
+"""Tests for the CI Monitor fetcher functionality."""
 
 from unittest.mock import patch
 
 import pytest
 
-from github_ci_fetcher.fetcher import GitHubCIFetcher
+from cimonitor.fetcher import GitHubCIFetcher
 
 
 def test_github_ci_fetcher_init_with_token():

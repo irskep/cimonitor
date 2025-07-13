@@ -1,6 +1,6 @@
 """Tests for the log parser functionality."""
 
-from github_ci_fetcher.log_parser import LogParser
+from cimonitor.log_parser import LogParser
 
 
 def test_filter_error_lines():

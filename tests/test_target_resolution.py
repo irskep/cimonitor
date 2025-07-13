@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from github_ci_fetcher.fetcher import GitHubCIFetcher
+from cimonitor.fetcher import GitHubCIFetcher
 
 
 @pytest.fixture

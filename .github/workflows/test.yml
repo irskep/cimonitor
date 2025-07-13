@@ -30,7 +30,7 @@ jobs:
         run: uv sync --extra dev
       
       - name: Run tests
-        run: uv run pytest --cov=github_ci_fetcher --cov-report=xml -v
+        run: uv run pytest --cov=cimonitor --cov-report=xml -v
       
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
@@ -80,12 +80,12 @@ jobs:
         run: uv sync
       
       - name: Test CLI help command
-        run: uv run fetch-ci-logs --help
+        run: uv run cimonitor --help
       
       - name: Test CLI with invalid options (should fail gracefully)
         run: |
           # Test mutual exclusivity validation
-          output=$(uv run fetch-ci-logs --commit abc123 --branch main 2>&1 || true)
+          output=$(uv run cimonitor --commit abc123 --branch main 2>&1 || true)
           if echo "$output" | grep -q "Please specify only one"; then
             echo "✅ Mutual exclusivity validation works"
           else
