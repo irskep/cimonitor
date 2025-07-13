@@ -10,17 +10,18 @@ CI Monitor is a command-line tool that lets AI agents and humans instantly acces
 
 ```bash
 # Single command to investigate and fix your PR's CI failures
-cimonitor --pr 123 --logs | claude "Analyze these CI failures and fix the issues. Commit and push the fixes when done."
+cimonitor logs --pr 123 | claude \
+  "Analyze these CI failures and fix the issues. Commit and push the fixes when done."
 
 # Auto-retry flaky tests and get notified only for real failures
-cimonitor --pr 123 --watch-and-retry 3 | claude "Monitor this output. If tests still fail after retries, analyze the logs and notify me with a summary of the real issues."
+cimonitor watch --pr 123 --retry 3 | claude \
+  "Monitor this output. If tests still fail after retries, analyze the logs and notify me with a summary of the real issues."
 ```
 
 This powerful combination lets you:
+- **Stay Focused**: No need to monitor job status and engage with an agent if you see a failure—let the agent do the waiting
 - **Fix Real Issues**: Claude Code automatically parses CI logs, identifies root causes, implements fixes, and pushes solutions
 - **Handle Flaky Tests**: Auto-retry failing jobs up to N times, only getting notified if failures persist
-- **Smart Notifications**: Get intelligent summaries of actual problems, not transient flakes
-- **Zero Manual Work**: No copying error messages or switching between terminal and browser
 
 ## Installation
 
@@ -29,31 +30,38 @@ pip install cimonitor
 export GITHUB_TOKEN="your_github_token_here"
 ```
 
+How to generate a token:
+1. Visit [https://github.com/settings/tokens](https://github.com/settings/tokens),
+2. "Generate new token" -> "Generate new token (classic)"
+3. Check "repo" and "workflow"
+4. Generate the token and export it as an environment variable as shown above
+
 ## Usage
 
 ```bash
-# Check current branch
-cimonitor
+# Check CI status
+cimonitor status                    # Current branch
+cimonitor status --pr 123          # Specific PR
+cimonitor status --commit abc1234  # Specific commit
 
-# Target specific commits/branches/PRs
-cimonitor --commit abc1234 --logs
-cimonitor --branch main --verbose
-cimonitor --pr 123
+# Get error logs
+cimonitor logs                      # Current branch (filtered logs)
+cimonitor logs --pr 123            # PR logs
+cimonitor logs --raw               # Raw unfiltered logs
+cimonitor logs --job-id 12345678   # Specific job logs
 
-# Real-time monitoring
-cimonitor --watch-until-completion  # Wait for completion
-cimonitor --watch-until-fail        # Stop on first failure
-cimonitor --watch-and-retry 3       # Watch and auto-retry failed jobs up to 3 times
-
-# Debug specific jobs
-cimonitor --job-id 12345678 --raw-logs
+# Watch CI progress
+cimonitor watch                     # Watch current branch
+cimonitor watch --until-complete   # Wait for completion
+cimonitor watch --until-fail       # Stop on first failure
+cimonitor watch --retry 3          # Auto-retry failed jobs up to 3 times
 ```
 
 ## What Agents Can Do
 
 **Instant CI Diagnosis** - Check any commit, branch, or PR for failures and get structured output perfect for programmatic analysis.
 
-**Real-Time Monitoring** - Use `--watch-until-completion` to watch CI progress live, `--watch-until-fail` for fail-fast workflows, or `--watch-and-retry N` to automatically retry failed jobs and filter out flaky test failures.
+**Real-Time Monitoring** - Use `watch --until-complete` to watch CI progress live, `watch --until-fail` for fail-fast workflows, or `watch --retry N` to automatically retry failed jobs and filter out flaky test failures.
 
 **Targeted Debugging** - Get step-level failure details and filtered error logs without downloading massive raw logs.
 

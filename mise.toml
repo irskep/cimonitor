@@ -4,9 +4,9 @@ python = "3.13"  # Development version, supports 3.10+
 [env]
 _.file = ".env"
 
-[tasks.ci-logs]
-description = "Monitor CI status for the latest commit on current branch"
-run = "uv run cimonitor"
+[tasks.ci-status]
+description = "Check CI status for the latest commit on current branch"
+run = "uv run cimonitor status"
 
 [tasks.install]
 description = "Install dependencies"
@@ -44,9 +44,9 @@ run = "uv run pre-commit install"
 description = "Run pre-commit on all files"
 run = "uv run pre-commit run --all-files"
 
-[tasks.poll-ci]
-description = "Poll CI status for current commit"
-run = "uv run cimonitor --poll --verbose"
+[tasks.watch-ci]
+description = "Watch CI status for current commit"
+run = "uv run cimonitor watch --until-complete --verbose"
 
 [tasks.bump-version]
 description = "Bump version (--patch by default, supports --minor, --major)"
