@@ -6,7 +6,7 @@ _.file = ".env"
 
 [tasks.ci-logs]
 description = "Fetch GitHub CI logs for the latest commit on current branch"
-run = "uv run ci-logs"
+run = "uv run fetch-ci-logs"
 
 [tasks.install]
 description = "Install dependencies"

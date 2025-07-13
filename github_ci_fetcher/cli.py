@@ -1,9 +1,9 @@
 """Command-line interface for GitHub CI Fetcher."""
 
 import sys
-import click
 from datetime import datetime
-from typing import Optional
+
+import click
 
 from .fetcher import GitHubCIFetcher
 from .log_parser import LogParser
@@ -13,6 +13,8 @@ from .log_parser import LogParser
 @click.option(
     "--branch", default=None, help="Specific branch to check (defaults to current branch)"
 )
+@click.option("--commit", help="Specific commit SHA to check")
+@click.option("--pr", "--pull-request", type=int, help="Pull request number to check")
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--show-logs", is_flag=True, help="Show detailed error logs for failed steps only")
 @click.option(
@@ -20,9 +22,19 @@ from .log_parser import LogParser
 )
 @click.option("--job-id", type=int, help="Show raw logs for specific job ID only")
 def main(
-    branch: Optional[str], verbose: bool, show_logs: bool, raw_logs: bool, job_id: Optional[int]
+    branch: str | None,
+    commit: str | None,
+    pr: int | None,
+    verbose: bool,
+    show_logs: bool,
+    raw_logs: bool,
+    job_id: int | None,
 ):
-    """Fetch GitHub CI logs for failing builds on the latest commit."""
+    """Fetch GitHub CI logs for failing builds.
+
+    Target options (--branch, --commit, --pr) are mutually exclusive.
+    If none specified, uses current branch and latest commit.
+    """
 
     try:
         fetcher = GitHubCIFetcher()
@@ -32,13 +44,39 @@ def main(
         if verbose:
             click.echo(f"Repository: {owner}/{repo_name}")
 
-        # Get current branch and commit
-        current_branch, commit_sha = fetcher.get_current_branch_and_commit()
-        target_branch = branch or current_branch
+        # Validate that only one target option is specified
+        target_options = [branch, commit, pr]
+        specified_options = [opt for opt in target_options if opt is not None]
+        if len(specified_options) > 1:
+            click.echo("Error: Please specify only one of --branch, --commit, or --pr", err=True)
+            sys.exit(1)
 
-        if verbose:
-            click.echo(f"Branch: {target_branch}")
-            click.echo(f"Latest commit: {commit_sha}")
+        # Determine target commit SHA and description
+        if pr:
+            commit_sha = fetcher.get_pr_head_sha(owner, repo_name, pr)
+            target_description = f"PR #{pr}"
+            if verbose:
+                click.echo(f"Pull Request: #{pr}")
+                click.echo(f"Head commit: {commit_sha}")
+        elif commit:
+            commit_sha = fetcher.resolve_commit_sha(owner, repo_name, commit)
+            target_description = f"commit {commit[:8] if len(commit) >= 8 else commit}"
+            if verbose:
+                click.echo(f"Commit: {commit}")
+                click.echo(f"Resolved SHA: {commit_sha}")
+        elif branch:
+            commit_sha = fetcher.get_branch_head_sha(owner, repo_name, branch)
+            target_description = f"branch {branch}"
+            if verbose:
+                click.echo(f"Branch: {branch}")
+                click.echo(f"Head commit: {commit_sha}")
+        else:
+            # Default: use current branch and commit
+            current_branch, commit_sha = fetcher.get_current_branch_and_commit()
+            target_description = f"current branch ({current_branch})"
+            if verbose:
+                click.echo(f"Branch: {current_branch}")
+                click.echo(f"Latest commit: {commit_sha}")
 
         # Handle specific job ID request
         if job_id:
@@ -82,14 +120,14 @@ def main(
                 click.echo("\n" + "=" * 80 + "\n")
             return
 
-        # Find failed jobs for the latest commit
+        # Find failed jobs for the target commit
         failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
 
         if not failed_check_runs:
-            click.echo("✅ No failing CI jobs found for the latest commit!")
+            click.echo(f"✅ No failing CI jobs found for {target_description}!")
             return
 
-        click.echo(f"❌ Found {len(failed_check_runs)} failing CI job(s):")
+        click.echo(f"❌ Found {len(failed_check_runs)} failing CI job(s) for {target_description}:")
         click.echo()
 
         for i, check_run in enumerate(failed_check_runs, 1):

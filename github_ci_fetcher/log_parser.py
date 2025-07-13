@@ -1,11 +1,11 @@
 """Log parsing functionality for extracting step-specific logs."""
 
-from typing import Dict, List, Any
+from typing import Any
 
 
 class LogParser:
     @staticmethod
-    def extract_step_logs(full_logs: str, failed_steps: List[Dict[str, Any]]) -> Dict[str, str]:
+    def extract_step_logs(full_logs: str, failed_steps: list[dict[str, Any]]) -> dict[str, str]:
         """Extract log sections for specific failed steps using GitHub's step markers."""
         step_logs = {}
         log_lines = full_logs.split("\n")
@@ -74,7 +74,7 @@ class LogParser:
         return step_logs
 
     @staticmethod
-    def filter_error_lines(step_log: str) -> List[str]:
+    def filter_error_lines(step_log: str) -> list[str]:
         """Filter step logs to show only error-related content."""
         step_lines = step_log.split("\n")
         shown_lines = []

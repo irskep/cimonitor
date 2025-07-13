@@ -1,7 +1,9 @@
 """Tests for the GitHub CI fetcher functionality."""
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch
+
 from github_ci_fetcher.fetcher import GitHubCIFetcher
 
 

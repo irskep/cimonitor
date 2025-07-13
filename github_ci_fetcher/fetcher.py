@@ -1,14 +1,15 @@
 """Core GitHub CI fetching functionality."""
 
 import os
+from typing import Any
+from urllib.parse import urlparse
+
 import requests
 from git import Repo
-from typing import Optional, Dict, List, Any
-from urllib.parse import urlparse
 
 
 class GitHubCIFetcher:
-    def __init__(self, github_token: Optional[str] = None):
+    def __init__(self, github_token: str | None = None):
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         if not self.github_token:
             raise ValueError("GitHub token is required. Set GITHUB_TOKEN environment variable.")
@@ -56,7 +57,7 @@ class GitHubCIFetcher:
         except Exception as e:
             raise ValueError(f"Failed to get git info: {e}")
 
-    def get_workflow_runs(self, owner: str, repo: str, branch: str) -> List[Dict[str, Any]]:
+    def get_workflow_runs(self, owner: str, repo: str, branch: str) -> list[dict[str, Any]]:
         """Get workflow runs for the current branch."""
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
         params = {"branch": branch, "per_page": 10, "status": "completed"}
@@ -79,7 +80,7 @@ class GitHubCIFetcher:
         except requests.RequestException as e:
             return f"Failed to fetch logs for job {job_id}: {e}"
 
-    def get_workflow_jobs(self, owner: str, repo: str, run_id: int) -> List[Dict[str, Any]]:
+    def get_workflow_jobs(self, owner: str, repo: str, run_id: int) -> list[dict[str, Any]]:
         """Get jobs for a specific workflow run."""
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
 
@@ -92,7 +93,7 @@ class GitHubCIFetcher:
 
     def find_failed_jobs_in_latest_run(
         self, owner: str, repo: str, commit_sha: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Find failed jobs in the latest workflow run for the given commit."""
         url = f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_sha}/check-runs"
 
@@ -110,7 +111,7 @@ class GitHubCIFetcher:
         except requests.RequestException as e:
             raise ValueError(f"Failed to fetch check runs: {e}")
 
-    def get_failed_steps(self, job: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_failed_steps(self, job: dict[str, Any]) -> list[dict[str, Any]]:
         """Extract failed steps from a job."""
         failed_steps = []
         steps = job.get("steps", [])
@@ -129,7 +130,7 @@ class GitHubCIFetcher:
 
         return failed_steps
 
-    def get_job_by_id(self, owner: str, repo: str, job_id: int) -> Dict[str, Any]:
+    def get_job_by_id(self, owner: str, repo: str, job_id: int) -> dict[str, Any]:
         """Get a specific job by ID."""
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/jobs/{job_id}"
 
@@ -142,7 +143,7 @@ class GitHubCIFetcher:
 
     def get_all_jobs_for_commit(
         self, owner: str, repo: str, commit_sha: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get all jobs (failed and successful) for a specific commit."""
         # First get all workflow runs for this commit
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
@@ -166,3 +167,44 @@ class GitHubCIFetcher:
             return all_jobs
         except requests.RequestException as e:
             raise ValueError(f"Failed to fetch jobs for commit {commit_sha}: {e}")
+
+    def resolve_commit_sha(self, owner: str, repo: str, commit_ref: str) -> str:
+        """Resolve a commit reference (SHA, branch, tag) to a full SHA."""
+        # If it's already a full SHA (40 characters), return as-is
+        if len(commit_ref) == 40 and all(c in "0123456789abcdef" for c in commit_ref.lower()):
+            return commit_ref
+
+        # Resolve via GitHub API
+        url = f"https://api.github.com/repos/{owner}/{repo}/commits/{commit_ref}"
+
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            commit_data = response.json()
+            return commit_data["sha"]
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to resolve commit reference '{commit_ref}': {e}")
+
+    def get_pr_head_sha(self, owner: str, repo: str, pr_number: int) -> str:
+        """Get the head commit SHA for a pull request."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            pr_data = response.json()
+            return pr_data["head"]["sha"]
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to get PR {pr_number} head SHA: {e}")
+
+    def get_branch_head_sha(self, owner: str, repo: str, branch_name: str) -> str:
+        """Get the head commit SHA for a branch."""
+        url = f"https://api.github.com/repos/{owner}/{repo}/branches/{branch_name}"
+
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            branch_data = response.json()
+            return branch_data["commit"]["sha"]
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to get branch '{branch_name}' head SHA: {e}")
