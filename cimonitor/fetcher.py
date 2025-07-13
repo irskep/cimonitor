@@ -225,11 +225,11 @@ class GitHubCIFetcher:
 
     def rerun_failed_jobs(self, owner: str, repo: str, run_id: int) -> bool:
         """Rerun failed jobs in a workflow run.
-        
+
         Returns True if the rerun was successful, False otherwise.
         """
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs"
-        
+
         try:
             response = requests.post(url, headers=self.headers)
             response.raise_for_status()

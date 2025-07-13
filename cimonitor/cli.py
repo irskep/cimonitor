@@ -27,7 +27,10 @@ from .log_parser import LogParser
     "--poll-until-failure", is_flag=True, help="Poll CI status until first failure or all complete"
 )
 @click.option(
-    "--retry-on-failure", type=int, metavar="COUNT", help="Retry failed jobs up to COUNT times (waits for completion before retrying)"
+    "--retry-on-failure",
+    type=int,
+    metavar="COUNT",
+    help="Retry failed jobs up to COUNT times (waits for completion before retrying)",
 )
 def main(
     branch: str | None,
@@ -181,22 +184,26 @@ def main(
                         if all_completed:
                             if any_failed and retry_on_failure and retry_count < retry_on_failure:
                                 retry_count += 1
-                                click.echo(f"\n🔁 Retrying failed jobs (attempt {retry_count}/{retry_on_failure})...")
-                                
+                                click.echo(
+                                    f"\n🔁 Retrying failed jobs (attempt {retry_count}/{retry_on_failure})..."
+                                )
+
                                 # Retry failed runs
                                 for run_id in failed_runs:
                                     if fetcher.rerun_failed_jobs(owner, repo_name, run_id):
                                         click.echo(f"  ✅ Restarted failed jobs in run {run_id}")
                                     else:
                                         click.echo(f"  ❌ Failed to restart jobs in run {run_id}")
-                                
+
                                 # Reset polling for the retry
                                 poll_count = 0
                                 time.sleep(30)  # Wait a bit longer before starting to poll again
                                 continue
                             elif any_failed:
                                 if retry_on_failure and retry_count >= retry_on_failure:
-                                    click.echo(f"\n💥 Max retries ({retry_on_failure}) reached. Some workflows still failed!")
+                                    click.echo(
+                                        f"\n💥 Max retries ({retry_on_failure}) reached. Some workflows still failed!"
+                                    )
                                 else:
                                     click.echo("\n💥 Some workflows failed!")
                                 sys.exit(1)
