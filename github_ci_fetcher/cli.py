@@ -23,7 +23,9 @@ from .log_parser import LogParser
 )
 @click.option("--job-id", type=int, help="Show raw logs for specific job ID only")
 @click.option("--poll", is_flag=True, help="Poll CI status until all workflows complete")
-@click.option("--poll-until-failure", is_flag=True, help="Poll CI status until first failure or all complete")
+@click.option(
+    "--poll-until-failure", is_flag=True, help="Poll CI status until first failure or all complete"
+)
 def main(
     branch: str | None,
     commit: str | None,
@@ -88,34 +90,36 @@ def main(
             if poll and poll_until_failure:
                 click.echo("Error: Cannot specify both --poll and --poll-until-failure", err=True)
                 sys.exit(1)
-                
+
             click.echo(f"🔄 Polling CI status for {target_description}...")
             click.echo(f"📋 Commit: {commit_sha}")
             click.echo("Press Ctrl+C to stop polling\n")
-            
+
             poll_interval = 10  # seconds
-            max_polls = 120     # 20 minutes total
+            max_polls = 120  # 20 minutes total
             poll_count = 0
-            
+
             try:
                 while poll_count < max_polls:
-                    workflow_runs = fetcher.get_workflow_runs_for_commit(owner, repo_name, commit_sha)
-                    
+                    workflow_runs = fetcher.get_workflow_runs_for_commit(
+                        owner, repo_name, commit_sha
+                    )
+
                     if not workflow_runs:
                         click.echo("⏳ No workflow runs found yet...")
                     else:
                         click.echo(f"📊 Found {len(workflow_runs)} workflow run(s):")
-                        
+
                         all_completed = True
                         any_failed = False
-                        
+
                         for run in workflow_runs:
                             name = run.get("name", "Unknown Workflow")
                             status = run.get("status", "unknown")
                             conclusion = run.get("conclusion")
                             created_at = run.get("created_at", "")
                             updated_at = run.get("updated_at", "")
-                            
+
                             # Calculate duration
                             try:
                                 start = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
@@ -125,9 +129,9 @@ def main(
                                     end = datetime.now(start.tzinfo)
                                 duration = end - start
                                 duration_str = f"{int(duration.total_seconds())}s"
-                            except:
+                            except Exception:
                                 duration_str = "unknown"
-                            
+
                             # Status emoji and tracking
                             if status == "completed":
                                 if conclusion == "success":
@@ -150,14 +154,14 @@ def main(
                             else:
                                 emoji = "❓"
                                 all_completed = False
-                            
+
                             click.echo(f"  {emoji} {name} ({status}) - {duration_str}")
-                        
+
                         # Check stopping conditions
                         if poll_until_failure and any_failed:
                             click.echo("\n💥 Stopping on first failure!")
                             sys.exit(1)
-                        
+
                         if all_completed:
                             if any_failed:
                                 click.echo("\n💥 Some workflows failed!")
@@ -165,16 +169,18 @@ def main(
                             else:
                                 click.echo("\n🎉 All workflows completed successfully!")
                                 sys.exit(0)
-                    
+
                     if poll_count < max_polls - 1:  # Don't sleep on last iteration
-                        click.echo(f"\n⏰ Waiting {poll_interval}s... (poll {poll_count + 1}/{max_polls})")
+                        click.echo(
+                            f"\n⏰ Waiting {poll_interval}s... (poll {poll_count + 1}/{max_polls})"
+                        )
                         time.sleep(poll_interval)
-                    
+
                     poll_count += 1
-                
+
                 click.echo("\n⏰ Polling timeout reached")
                 sys.exit(1)
-                
+
             except KeyboardInterrupt:
                 click.echo("\n👋 Polling stopped by user")
                 sys.exit(0)

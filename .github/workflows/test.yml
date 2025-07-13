@@ -85,9 +85,11 @@ jobs:
       - name: Test CLI with invalid options (should fail gracefully)
         run: |
           # Test mutual exclusivity validation
-          if uv run fetch-ci-logs --commit abc123 --branch main 2>&1 | grep -q "Please specify only one"; then
+          output=$(uv run fetch-ci-logs --commit abc123 --branch main 2>&1 || true)
+          if echo "$output" | grep -q "Please specify only one"; then
             echo "✅ Mutual exclusivity validation works"
           else
             echo "❌ Mutual exclusivity validation failed"
+            echo "Actual output: $output"
             exit 1
           fi
