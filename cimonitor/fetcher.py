@@ -222,3 +222,18 @@ class GitHubCIFetcher:
             return response.json().get("workflow_runs", [])
         except requests.RequestException as e:
             raise ValueError(f"Failed to fetch workflow runs for commit {commit_sha}: {e}")
+
+    def rerun_failed_jobs(self, owner: str, repo: str, run_id: int) -> bool:
+        """Rerun failed jobs in a workflow run.
+        
+        Returns True if the rerun was successful, False otherwise.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs"
+        
+        try:
+            response = requests.post(url, headers=self.headers)
+            response.raise_for_status()
+            return True
+        except requests.RequestException as e:
+            print(f"Failed to rerun failed jobs for run {run_id}: {e}")
+            return False

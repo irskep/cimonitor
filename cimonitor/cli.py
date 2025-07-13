@@ -26,6 +26,9 @@ from .log_parser import LogParser
 @click.option(
     "--poll-until-failure", is_flag=True, help="Poll CI status until first failure or all complete"
 )
+@click.option(
+    "--retry-on-failure", type=int, metavar="COUNT", help="Retry failed jobs up to COUNT times (waits for completion before retrying)"
+)
 def main(
     branch: str | None,
     commit: str | None,
@@ -36,6 +39,7 @@ def main(
     job_id: int | None,
     poll: bool,
     poll_until_failure: bool,
+    retry_on_failure: int | None,
 ):
     """Fetch GitHub CI logs for failing builds.
 
@@ -53,6 +57,10 @@ def main(
 
         if poll and poll_until_failure:
             click.echo("Error: Cannot specify both --poll and --poll-until-failure", err=True)
+            sys.exit(1)
+
+        if retry_on_failure is not None and retry_on_failure < 1:
+            click.echo("Error: --retry-on-failure must be a positive integer", err=True)
             sys.exit(1)
 
         fetcher = GitHubCIFetcher()
@@ -90,14 +98,17 @@ def main(
                 click.echo(f"Latest commit: {commit_sha}")
 
         # Handle polling options
-        if poll or poll_until_failure:
+        if poll or poll_until_failure or retry_on_failure:
             click.echo(f"🔄 Polling CI status for {target_description}...")
             click.echo(f"📋 Commit: {commit_sha}")
+            if retry_on_failure:
+                click.echo(f"🔁 Will retry failed jobs up to {retry_on_failure} time(s)")
             click.echo("Press Ctrl+C to stop polling\n")
 
             poll_interval = 10  # seconds
             max_polls = 120  # 20 minutes total
             poll_count = 0
+            retry_count = 0
 
             try:
                 while poll_count < max_polls:
@@ -112,6 +123,7 @@ def main(
 
                         all_completed = True
                         any_failed = False
+                        failed_runs = []
 
                         for run in workflow_runs:
                             name = run.get("name", "Unknown Workflow")
@@ -119,6 +131,7 @@ def main(
                             conclusion = run.get("conclusion")
                             created_at = run.get("created_at", "")
                             updated_at = run.get("updated_at", "")
+                            run_id = run.get("id")
 
                             # Calculate duration
                             try:
@@ -139,12 +152,15 @@ def main(
                                 elif conclusion == "failure":
                                     emoji = "❌"
                                     any_failed = True
+                                    failed_runs.append(run_id)
                                 elif conclusion == "cancelled":
                                     emoji = "🚫"
                                     any_failed = True
+                                    failed_runs.append(run_id)
                                 else:
                                     emoji = "⚠️"
                                     any_failed = True
+                                    failed_runs.append(run_id)
                             elif status == "in_progress":
                                 emoji = "🔄"
                                 all_completed = False
@@ -163,8 +179,26 @@ def main(
                             sys.exit(1)
 
                         if all_completed:
-                            if any_failed:
-                                click.echo("\n💥 Some workflows failed!")
+                            if any_failed and retry_on_failure and retry_count < retry_on_failure:
+                                retry_count += 1
+                                click.echo(f"\n🔁 Retrying failed jobs (attempt {retry_count}/{retry_on_failure})...")
+                                
+                                # Retry failed runs
+                                for run_id in failed_runs:
+                                    if fetcher.rerun_failed_jobs(owner, repo_name, run_id):
+                                        click.echo(f"  ✅ Restarted failed jobs in run {run_id}")
+                                    else:
+                                        click.echo(f"  ❌ Failed to restart jobs in run {run_id}")
+                                
+                                # Reset polling for the retry
+                                poll_count = 0
+                                time.sleep(30)  # Wait a bit longer before starting to poll again
+                                continue
+                            elif any_failed:
+                                if retry_on_failure and retry_count >= retry_on_failure:
+                                    click.echo(f"\n💥 Max retries ({retry_on_failure}) reached. Some workflows still failed!")
+                                else:
+                                    click.echo("\n💥 Some workflows failed!")
                                 sys.exit(1)
                             else:
                                 click.echo("\n🎉 All workflows completed successfully!")
