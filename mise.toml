@@ -43,3 +43,7 @@ run = "uv run pre-commit install"
 [tasks.pre-commit]
 description = "Run pre-commit on all files"
 run = "uv run pre-commit run --all-files"
+
+[tasks.poll-ci]
+description = "Poll CI status for current commit"
+run = "uv run python scripts/poll_ci_status.py"
