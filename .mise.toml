@@ -1,0 +1,19 @@
+[tools]
+python = "3.13"
+
+[tasks.ci-logs]
+description = "Fetch GitHub CI logs for the latest commit on current branch"
+run = "uv run ci_logs.py"
+
+[tasks.install]
+description = "Install dependencies"
+run = "uv sync"
+
+[tasks.init]
+description = "Initialize project"
+run = [
+    "uv init --lib",
+    "uv add requests",
+    "uv add click",
+    "uv add GitPython"
+]

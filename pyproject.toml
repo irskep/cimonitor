@@ -1,0 +1,18 @@
+[project]
+name = "github-ci-fetcher"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Steve Landey", email = "steve@steveasleep.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.2.1",
+    "gitpython>=3.1.44",
+    "requests>=2.32.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
