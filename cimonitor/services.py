@@ -1,0 +1,495 @@
+"""Business logic services for CI Monitor.
+
+This module contains the core business logic separated from presentation concerns.
+All functions use early-return patterns to avoid deep nesting.
+"""
+
+from datetime import datetime
+from typing import Any
+
+from .fetcher import GitHubCIFetcher
+from .log_parser import LogParser
+
+
+class CIStatusResult:
+    """Result object for CI status operations."""
+
+    def __init__(self, failed_check_runs: list[dict[str, Any]], target_description: str):
+        self.failed_check_runs = failed_check_runs
+        self.target_description = target_description
+        self.has_failures = len(failed_check_runs) > 0
+
+
+class WorkflowStepInfo:
+    """Information about a workflow step."""
+
+    def __init__(self, name: str, number: int, duration: str = "Unknown"):
+        self.name = name
+        self.number = number
+        self.duration = duration
+
+
+class JobDetails:
+    """Detailed information about a failed job."""
+
+    def __init__(self, name: str, html_url: str, conclusion: str):
+        self.name = name
+        self.html_url = html_url
+        self.conclusion = conclusion
+        self.failed_steps: list[WorkflowStepInfo] = []
+        self.step_logs: dict[str, str] = {}
+
+
+def get_ci_status(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, commit_sha: str, target_description: str
+) -> CIStatusResult:
+    """Get CI status for a commit with detailed job information.
+
+    Args:
+        fetcher: GitHub CI fetcher instance
+        owner: Repository owner
+        repo_name: Repository name
+        commit_sha: Target commit SHA
+        target_description: Human-readable description of target
+
+    Returns:
+        CIStatusResult with failed jobs and details
+    """
+    failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
+    return CIStatusResult(failed_check_runs, target_description)
+
+
+def get_job_details_for_status(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, check_run: dict[str, Any]
+) -> JobDetails | None:
+    """Get detailed information for a failed job for status display.
+
+    Args:
+        fetcher: GitHub CI fetcher instance
+        owner: Repository owner
+        repo_name: Repository name
+        check_run: Check run data from GitHub API
+
+    Returns:
+        JobDetails object or None if details cannot be retrieved
+    """
+    name = check_run.get("name", "Unknown Job")
+    conclusion = check_run.get("conclusion", "unknown")
+    html_url = check_run.get("html_url", "")
+
+    job_details = JobDetails(name, html_url, conclusion)
+
+    # Early return if not a workflow run
+    if "actions/runs" not in html_url:
+        return job_details
+
+    try:
+        run_id = _extract_run_id_from_url(html_url)
+        if not run_id:
+            return job_details
+
+        jobs = fetcher.get_workflow_jobs(owner, repo_name, run_id)
+        _add_failed_steps_to_job_details(fetcher, jobs, job_details)
+
+    except Exception:
+        # Return basic job details even if we can't get step information
+        pass
+
+    return job_details
+
+
+def get_job_logs(
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    commit_sha: str,
+    target_description: str,
+    job_id: int | None = None,
+    raw: bool = False,
+) -> dict[str, Any]:
+    """Get logs for failed CI jobs.
+
+    Args:
+        fetcher: GitHub CI fetcher instance
+        owner: Repository owner
+        repo_name: Repository name
+        commit_sha: Target commit SHA
+        target_description: Human-readable description of target
+        job_id: Specific job ID to get logs for (optional)
+        raw: Whether to return raw logs
+
+    Returns:
+        Dictionary with log information and metadata
+    """
+    # Handle specific job ID request
+    if job_id:
+        return _get_specific_job_logs(fetcher, owner, repo_name, job_id)
+
+    # Handle raw logs request
+    if raw:
+        return _get_raw_logs_for_commit(fetcher, owner, repo_name, commit_sha)
+
+    # Default: return filtered error logs
+    return _get_filtered_error_logs(fetcher, owner, repo_name, commit_sha, target_description)
+
+
+def watch_ci_status(
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    commit_sha: str,
+    target_description: str,
+    until_complete: bool = False,
+    until_fail: bool = False,
+    retry_count: int | None = None,
+) -> dict[str, Any]:
+    """Watch CI status for a single poll cycle.
+
+    Args:
+        fetcher: GitHub CI fetcher instance
+        owner: Repository owner
+        repo_name: Repository name
+        commit_sha: Target commit SHA
+        target_description: Human-readable description of target
+        until_complete: Whether to wait until completion
+        until_fail: Whether to stop on first failure
+        retry_count: Number of retries remaining
+
+    Returns:
+        Dictionary with workflow status and recommended actions
+    """
+    workflow_runs = fetcher.get_workflow_runs_for_commit(owner, repo_name, commit_sha)
+
+    if not workflow_runs:
+        return {
+            "status": "no_runs",
+            "message": "No workflow runs found yet",
+            "continue_watching": True,
+        }
+
+    status_summary = _analyze_workflow_runs(workflow_runs)
+
+    # Check stopping conditions with early returns
+    if until_fail and status_summary["any_failed"]:
+        return {
+            "status": "stop_on_failure",
+            "workflows": status_summary["workflows"],
+            "continue_watching": False,
+        }
+
+    if not status_summary["all_completed"]:
+        return {
+            "status": "in_progress",
+            "workflows": status_summary["workflows"],
+            "continue_watching": True,
+        }
+
+    # All completed - check if we need to retry
+    if status_summary["any_failed"] and retry_count and retry_count > 0:
+        return {
+            "status": "retry_needed",
+            "workflows": status_summary["workflows"],
+            "failed_runs": status_summary["failed_runs"],
+            "continue_watching": True,
+        }
+
+    if status_summary["any_failed"]:
+        return {
+            "status": "failed",
+            "workflows": status_summary["workflows"],
+            "continue_watching": False,
+        }
+
+    return {
+        "status": "success",
+        "workflows": status_summary["workflows"],
+        "continue_watching": False,
+    }
+
+
+def retry_failed_workflows(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, failed_run_ids: list[int]
+) -> dict[int, bool]:
+    """Retry failed workflow runs.
+
+    Args:
+        fetcher: GitHub CI fetcher instance
+        owner: Repository owner
+        repo_name: Repository name
+        failed_run_ids: List of run IDs to retry
+
+    Returns:
+        Dictionary mapping run_id to success status
+    """
+    results = {}
+    for run_id in failed_run_ids:
+        results[run_id] = fetcher.rerun_failed_jobs(owner, repo_name, run_id)
+    return results
+
+
+# Private helper functions
+
+
+def _extract_run_id_from_url(html_url: str) -> int | None:
+    """Extract run ID from GitHub Actions URL."""
+    if "actions/runs" not in html_url:
+        return None
+    try:
+        return int(html_url.split("/runs/")[1].split("/")[0])
+    except (IndexError, ValueError):
+        return None
+
+
+def _add_failed_steps_to_job_details(
+    fetcher: GitHubCIFetcher, jobs: list[dict[str, Any]], job_details: JobDetails
+) -> None:
+    """Add failed step information to job details."""
+    for job in jobs:
+        if job.get("conclusion") != "failure":
+            continue
+
+        failed_steps = fetcher.get_failed_steps(job)
+        if not failed_steps:
+            continue
+
+        for step in failed_steps:
+            duration = _calculate_step_duration(step)
+            step_info = WorkflowStepInfo(step["name"], step["number"], duration)
+            job_details.failed_steps.append(step_info)
+
+
+def _calculate_step_duration(step: dict[str, Any]) -> str:
+    """Calculate duration for a workflow step."""
+    if not step.get("started_at") or not step.get("completed_at"):
+        return "Unknown"
+
+    try:
+        start = datetime.fromisoformat(step["started_at"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(step["completed_at"].replace("Z", "+00:00"))
+        return f"{(end - start).total_seconds():.1f}s"
+    except Exception:
+        return "Unknown"
+
+
+def _get_specific_job_logs(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, job_id: int
+) -> dict[str, Any]:
+    """Get logs for a specific job ID."""
+    job_info = fetcher.get_job_by_id(owner, repo_name, job_id)
+    logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
+
+    return {"type": "specific_job", "job_info": job_info, "logs": logs_content}
+
+
+def _get_raw_logs_for_commit(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, commit_sha: str
+) -> dict[str, Any]:
+    """Get raw logs for all failed jobs in a commit."""
+    all_jobs = fetcher.get_all_jobs_for_commit(owner, repo_name, commit_sha)
+    failed_jobs = [job for job in all_jobs if job.get("conclusion") == "failure"]
+
+    if not failed_jobs:
+        return {"type": "raw_logs", "failed_jobs": [], "has_failures": False}
+
+    # Fetch logs for each failed job
+    job_logs = []
+    for job in failed_jobs:
+        job_id = job.get("id")
+        if not job_id:
+            continue
+
+        logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
+        job_logs.append({"job": job, "logs": logs_content})
+
+    return {"type": "raw_logs", "failed_jobs": job_logs, "has_failures": True}
+
+
+def _get_filtered_error_logs(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, commit_sha: str, target_description: str
+) -> dict[str, Any]:
+    """Get filtered error logs for failed jobs."""
+    failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
+
+    if not failed_check_runs:
+        return {
+            "type": "filtered_logs",
+            "target_description": target_description,
+            "failed_jobs": [],
+            "has_failures": False,
+        }
+
+    job_logs = []
+    for check_run in failed_check_runs:
+        job_log_info = _process_check_run_for_logs(fetcher, owner, repo_name, check_run)
+        if job_log_info:
+            job_logs.append(job_log_info)
+
+    return {
+        "type": "filtered_logs",
+        "target_description": target_description,
+        "failed_jobs": job_logs,
+        "has_failures": True,
+    }
+
+
+def _process_check_run_for_logs(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, check_run: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Process a single check run to extract step logs."""
+    name = check_run.get("name", "Unknown Job")
+    html_url = check_run.get("html_url", "")
+
+    # Early return if not a workflow run
+    if "actions/runs" not in html_url:
+        return {
+            "name": name,
+            "html_url": html_url,
+            "step_logs": {},
+            "error": "Cannot retrieve detailed information for this check run type",
+        }
+
+    try:
+        run_id = _extract_run_id_from_url(html_url)
+        if not run_id:
+            return None
+
+        jobs = fetcher.get_workflow_jobs(owner, repo_name, run_id)
+        return _extract_step_logs_from_jobs(fetcher, owner, repo_name, jobs, name)
+
+    except Exception as e:
+        return {
+            "name": name,
+            "html_url": html_url,
+            "step_logs": {},
+            "error": f"Error processing job details: {e}",
+        }
+
+
+def _extract_step_logs_from_jobs(
+    fetcher: GitHubCIFetcher, owner: str, repo_name: str, jobs: list[dict[str, Any]], job_name: str
+) -> dict[str, Any] | None:
+    """Extract step logs from workflow jobs."""
+    for job in jobs:
+        if job.get("conclusion") != "failure":
+            continue
+
+        job_id = job.get("id")
+        failed_steps = fetcher.get_failed_steps(job)
+
+        if not job_id or not failed_steps:
+            continue
+
+        logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
+        step_logs = LogParser.extract_step_logs(logs_content, failed_steps)
+
+        if step_logs:
+            # Filter each step's logs for errors
+            filtered_step_logs = {}
+            for step_name, step_log in step_logs.items():
+                if step_log.strip():
+                    shown_lines = LogParser.filter_error_lines(step_log)
+                    if shown_lines:
+                        filtered_step_logs[step_name] = "\n".join(shown_lines)
+                    else:
+                        # Fallback to last few lines
+                        step_lines = step_log.split("\n")
+                        filtered_step_logs[step_name] = "\n".join(
+                            line for line in step_lines[-10:] if line.strip()
+                        )
+
+            return {
+                "name": job_name,
+                "job_name": job.get("name", "Unknown"),
+                "step_logs": filtered_step_logs,
+                "error": None,
+            }
+
+    return {"name": job_name, "step_logs": {}, "error": "Could not retrieve job logs"}
+
+
+def _analyze_workflow_runs(workflow_runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Analyze workflow runs and return status summary."""
+    all_completed = True
+    any_failed = False
+    failed_runs = []
+    workflows = []
+
+    for run in workflow_runs:
+        workflow_info = _process_single_workflow_run(run)
+        workflows.append(workflow_info)
+
+        if not workflow_info["completed"]:
+            all_completed = False
+
+        if workflow_info["failed"]:
+            any_failed = True
+            failed_runs.append(run.get("id"))
+
+    return {
+        "all_completed": all_completed,
+        "any_failed": any_failed,
+        "failed_runs": failed_runs,
+        "workflows": workflows,
+    }
+
+
+def _process_single_workflow_run(run: dict[str, Any]) -> dict[str, Any]:
+    """Process a single workflow run and return status info."""
+    name = run.get("name", "Unknown Workflow")
+    status = run.get("status", "unknown")
+    conclusion = run.get("conclusion")
+
+    # Calculate duration
+    duration_str = _calculate_workflow_duration(run)
+
+    # Determine status info
+    if status == "completed":
+        completed = True
+        if conclusion == "success":
+            emoji = "✅"
+            failed = False
+        else:
+            emoji = "❌" if conclusion == "failure" else "🚫" if conclusion == "cancelled" else "⚠️"
+            failed = True
+    elif status == "in_progress":
+        emoji = "🔄"
+        completed = False
+        failed = False
+    elif status == "queued":
+        emoji = "⏳"
+        completed = False
+        failed = False
+    else:
+        emoji = "❓"
+        completed = False
+        failed = False
+
+    return {
+        "name": name,
+        "status": status,
+        "conclusion": conclusion,
+        "emoji": emoji,
+        "duration": duration_str,
+        "completed": completed,
+        "failed": failed,
+    }
+
+
+def _calculate_workflow_duration(run: dict[str, Any]) -> str:
+    """Calculate duration for a workflow run."""
+    created_at = run.get("created_at", "")
+    updated_at = run.get("updated_at", "")
+
+    if not created_at:
+        return "unknown"
+
+    try:
+        start = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if updated_at:
+            end = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        else:
+            end = datetime.now(start.tzinfo)
+        duration = end - start
+        return f"{int(duration.total_seconds())}s"
+    except Exception:
+        return "unknown"
