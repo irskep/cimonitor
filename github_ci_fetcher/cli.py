@@ -44,19 +44,23 @@ def main(
     """
 
     try:
+        # Validate options (do this first, before any API calls)
+        target_options = [branch, commit, pr]
+        specified_options = [opt for opt in target_options if opt is not None]
+        if len(specified_options) > 1:
+            click.echo("Error: Please specify only one of --branch, --commit, or --pr", err=True)
+            sys.exit(1)
+
+        if poll and poll_until_failure:
+            click.echo("Error: Cannot specify both --poll and --poll-until-failure", err=True)
+            sys.exit(1)
+
         fetcher = GitHubCIFetcher()
 
         # Get repository info
         owner, repo_name = fetcher.get_repo_info()
         if verbose:
             click.echo(f"Repository: {owner}/{repo_name}")
-
-        # Validate that only one target option is specified
-        target_options = [branch, commit, pr]
-        specified_options = [opt for opt in target_options if opt is not None]
-        if len(specified_options) > 1:
-            click.echo("Error: Please specify only one of --branch, --commit, or --pr", err=True)
-            sys.exit(1)
 
         # Determine target commit SHA and description
         if pr:
@@ -87,10 +91,6 @@ def main(
 
         # Handle polling options
         if poll or poll_until_failure:
-            if poll and poll_until_failure:
-                click.echo("Error: Cannot specify both --poll and --poll-until-failure", err=True)
-                sys.exit(1)
-
             click.echo(f"🔄 Polling CI status for {target_description}...")
             click.echo(f"📋 Commit: {commit_sha}")
             click.echo("Press Ctrl+C to stop polling\n")

@@ -64,6 +64,7 @@ select = [
 ]
 ignore = [
     "E501",   # line too long, handled by formatter
+    "B904",   # Within `except` clause, raise exceptions with `raise ... from err`
 ]
 
 [tool.ruff.format]

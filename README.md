@@ -136,14 +136,18 @@ fetch-ci-logs --poll-until-failure
 - GitHub personal access token
 - Repository with GitHub Actions or other CI setup
 
-## Development
+## Use Cases
 
-This tool is built for developers who want to quickly identify CI failures without leaving their terminal or IDE. It's particularly useful when:
+**For Developers:**
+- Quickly identify CI failures without leaving the terminal
+- Debug specific failing steps with targeted log filtering
+- Monitor CI progress for multiple branches or pull requests
 
-- Working with multiple branches or pull requests
-- Debugging CI failures in team environments  
-- Automating CI failure notifications
-- Integrating CI status into development workflows
+**For AI Agents:**
+- Automated CI failure detection and reporting
+- Real-time monitoring with `--poll` for autonomous workflows
+- Fail-fast behavior with `--poll-until-failure` for efficient resource usage
+- Structured output for parsing and decision-making
 
 ## License
 
