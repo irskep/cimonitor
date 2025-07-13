@@ -40,6 +40,7 @@ fetch-ci-logs = "github_ci_fetcher.cli:main"
 dev = [
     "ruff>=0.7.0",
     "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
     "pre-commit>=4.0.0",
 ]
 

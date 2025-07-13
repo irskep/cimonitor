@@ -1,5 +1,5 @@
 [tools]
-python = "3.13"
+python = "3.13"  # Development version, supports 3.10+
 
 [env]
 _.file = ".env"
@@ -19,6 +19,10 @@ run = "uv sync --extra dev"
 [tasks.test]
 description = "Run tests"
 run = "uv run pytest"
+
+[tasks.test-cov]
+description = "Run tests with coverage"
+run = "uv run pytest --cov=github_ci_fetcher --cov-report=html --cov-report=term"
 
 [tasks.lint]
 description = "Run linting"

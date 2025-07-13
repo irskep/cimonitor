@@ -1,77 +1,93 @@
-name: Test CI Integration
+name: Test Suite
 
 on:
   push:
-    branches: [ main, test-ci-integration ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  test-passing:
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    
+    runs-on: ${{ matrix.os }}
+    
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.13'
-      
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
       
       - name: Install dependencies
-        run: |
-          source $HOME/.cargo/env
-          uv sync
+        run: uv sync --extra dev
       
-      - name: Run basic tests
-        run: |
-          source $HOME/.cargo/env
-          uv run ci_logs.py --help
-          echo "✅ Help command works correctly"
+      - name: Run tests
+        run: uv run pytest --cov=github_ci_fetcher --cov-report=xml -v
+      
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
 
-  test-linting:
+  lint:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.13'
       
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
       
-      - name: Check Python syntax
-        run: |
-          source $HOME/.cargo/env
-          uv run python -m py_compile ci_logs.py
-          echo "✅ Python syntax is valid"
+      - name: Set up Python
+        run: uv python install 3.13
+      
+      - name: Install dependencies
+        run: uv sync --extra dev
+      
+      - name: Run ruff check
+        run: uv run ruff check .
+      
+      - name: Run ruff format check
+        run: uv run ruff format --check .
 
-  test-failing-job:
+  cli-test:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
       
-      - name: Intentionally failing step
-        run: |
-          echo "This step will fail intentionally to test CI log fetching"
-          echo "ERROR: Simulated failure for testing purposes"
-          exit 1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
       
-      - name: This step should not run
-        run: echo "This should not be executed"
-
-  test-another-failure:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Set up Python
+        run: uv python install 3.13
       
-      - name: Another intentional failure
+      - name: Install dependencies
+        run: uv sync
+      
+      - name: Test CLI help command
+        run: uv run fetch-ci-logs --help
+      
+      - name: Test CLI with invalid options (should fail gracefully)
         run: |
-          echo "Starting another test that will fail..."
-          echo "ERROR: Another simulated error"
-          echo "FAILED: Test assertion failed"
-          false  # This command always returns non-zero exit code
+          # Test mutual exclusivity validation
+          if uv run fetch-ci-logs --commit abc123 --branch main 2>&1 | grep -q "Please specify only one"; then
+            echo "✅ Mutual exclusivity validation works"
+          else
+            echo "❌ Mutual exclusivity validation failed"
+            exit 1
+          fi
