@@ -11,7 +11,8 @@ A Python tool to fetch and display GitHub CI logs for failing builds on the late
 
 2. Set your GitHub token:
    ```bash
-   export GITHUB_TOKEN=your_github_token_here
+   cp .env.example .env
+   # Edit .env and add your GitHub token
    ```
 
 ## Usage
