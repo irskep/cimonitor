@@ -57,6 +57,75 @@ cimonitor watch --until-fail       # Stop on first failure
 cimonitor watch --retry 3          # Auto-retry failed jobs up to 3 times
 ```
 
+## Command Reference
+
+### Main Command
+```
+Usage: cimonitor [OPTIONS] COMMAND [ARGS]...
+
+  CI Monitor - Monitor GitHub CI workflows, fetch logs, and track build
+  status.
+
+Options:
+  --version  Show the version and exit.
+  --help     Show this message and exit.
+
+Commands:
+  logs    Show error logs for failed CI jobs.
+  status  Show CI status for the target commit/branch/PR.
+  watch   Watch CI status with real-time updates.
+```
+
+### cimonitor status
+```
+Usage: cimonitor status [OPTIONS]
+
+  Show CI status for the target commit/branch/PR.
+
+Options:
+  --pr, --pull-request INTEGER  Pull request number to check
+  --commit TEXT                 Specific commit SHA to check
+  --branch TEXT                 Specific branch to check (defaults to current
+                                branch)
+  -v, --verbose                 Show verbose output
+  --help                        Show this message and exit.
+```
+
+### cimonitor logs
+```
+Usage: cimonitor logs [OPTIONS]
+
+  Show error logs for failed CI jobs.
+
+Options:
+  --pr, --pull-request INTEGER  Pull request number to check
+  --commit TEXT                 Specific commit SHA to check
+  --branch TEXT                 Specific branch to check (defaults to current
+                                branch)
+  -v, --verbose                 Show verbose output
+  --raw                         Show complete raw logs (for debugging)
+  --job-id INTEGER              Show logs for specific job ID only
+  --help                        Show this message and exit.
+```
+
+### cimonitor watch
+```
+Usage: cimonitor watch [OPTIONS]
+
+  Watch CI status with real-time updates.
+
+Options:
+  --pr, --pull-request INTEGER  Pull request number to check
+  --commit TEXT                 Specific commit SHA to check
+  --branch TEXT                 Specific branch to check (defaults to current
+                                branch)
+  -v, --verbose                 Show verbose output
+  --until-complete              Wait until all workflows complete
+  --until-fail                  Stop on first failure
+  --retry COUNT                 Auto-retry failed jobs up to COUNT times
+  --help                        Show this message and exit.
+```
+
 ## What Agents Can Do
 
 **Instant CI Diagnosis** - Check any commit, branch, or PR for failures and get structured output perfect for programmatic analysis.
