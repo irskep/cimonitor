@@ -5,8 +5,8 @@ python = "3.13"  # Development version, supports 3.10+
 _.file = ".env"
 
 [tasks.ci-logs]
-description = "Fetch GitHub CI logs for the latest commit on current branch"
-run = "uv run fetch-ci-logs"
+description = "Monitor CI status for the latest commit on current branch"
+run = "uv run cimonitor"
 
 [tasks.install]
 description = "Install dependencies"
@@ -22,7 +22,7 @@ run = "uv run pytest"
 
 [tasks.test-cov]
 description = "Run tests with coverage"
-run = "uv run pytest --cov=github_ci_fetcher --cov-report=html --cov-report=term"
+run = "uv run pytest --cov=cimonitor --cov-report=html --cov-report=term"
 
 [tasks.lint]
 description = "Run linting"
@@ -46,4 +46,4 @@ run = "uv run pre-commit run --all-files"
 
 [tasks.poll-ci]
 description = "Poll CI status for current commit"
-run = "uv run fetch-ci-logs --poll --verbose"
+run = "uv run cimonitor --poll --verbose"

@@ -1,4 +1,4 @@
-"""Command-line interface for GitHub CI Fetcher."""
+"""Command-line interface for CI Monitor."""
 
 import sys
 import time

@@ -1,11 +1,11 @@
-# GitHub CI Fetcher
+# CI Monitor
 
-A Python tool to fetch and display GitHub CI logs for failing builds. Quickly identify and debug CI failures without navigating through the GitHub web interface.
+A Python tool to monitor GitHub CI workflows, fetch logs, and track build status. Quickly identify and debug CI failures without navigating through the GitHub web interface.
 
 ## Installation
 
 ```bash
-pip install github-ci-fetcher
+pip install cimonitor
 ```
 
 ## Quick Start
@@ -17,7 +17,7 @@ pip install github-ci-fetcher
 
 2. Navigate to a git repository and run:
    ```bash
-   fetch-ci-logs
+   cimonitor
    ```
 
 ## Usage
@@ -26,42 +26,42 @@ pip install github-ci-fetcher
 
 ```bash
 # Check current branch's latest commit
-fetch-ci-logs
+cimonitor
 
 # Show verbose output
-fetch-ci-logs --verbose
+cimonitor --verbose
 
 # Show detailed error logs for failed steps
-fetch-ci-logs --show-logs
+cimonitor --show-logs
 ```
 
 ### Target Specific Commits or Branches
 
 ```bash
 # Check a specific commit
-fetch-ci-logs --commit abc1234
+cimonitor --commit abc1234
 
 # Check a specific branch
-fetch-ci-logs --branch main
+cimonitor --branch main
 
 # Check a pull request
-fetch-ci-logs --pr 123
+cimonitor --pr 123
 ```
 
 ### Advanced Options
 
 ```bash
 # Show raw logs for debugging
-fetch-ci-logs --raw-logs
+cimonitor --raw-logs
 
 # Show logs for a specific job ID
-fetch-ci-logs --job-id 12345678
+cimonitor --job-id 12345678
 
 # Poll CI status until all workflows complete
-fetch-ci-logs --poll
+cimonitor --poll
 
 # Poll CI status and stop on first failure
-fetch-ci-logs --poll-until-failure
+cimonitor --poll-until-failure
 ```
 
 ## Features
@@ -108,25 +108,25 @@ GITHUB_TOKEN=your_token_here
 
 ```bash
 # Basic check of current branch
-fetch-ci-logs
+cimonitor
 
 # Check main branch with verbose output
-fetch-ci-logs --branch main --verbose
+cimonitor --branch main --verbose
 
 # Check specific commit and show detailed logs
-fetch-ci-logs --commit abc1234 --show-logs
+cimonitor --commit abc1234 --show-logs
 
 # Check pull request #42
-fetch-ci-logs --pr 42
+cimonitor --pr 42
 
 # Debug a specific job
-fetch-ci-logs --job-id 45867092486 --raw-logs
+cimonitor --job-id 45867092486 --raw-logs
 
 # Monitor CI progress in real-time
-fetch-ci-logs --poll --verbose
+cimonitor --poll --verbose
 
 # Stop monitoring on first failure
-fetch-ci-logs --poll-until-failure
+cimonitor --poll-until-failure
 ```
 
 ## Requirements
