@@ -20,13 +20,14 @@ export GITHUB_TOKEN="your_github_token_here"
 cimonitor
 
 # Target specific commits/branches/PRs
-cimonitor --commit abc1234 --show-logs
-cimonitor --branch main --verbose  
+cimonitor --commit abc1234 --logs
+cimonitor --branch main --verbose
 cimonitor --pr 123
 
 # Real-time monitoring
-cimonitor --poll                    # Wait for completion
-cimonitor --poll-until-failure     # Stop on first failure
+cimonitor --watch-until-completion  # Wait for completion
+cimonitor --watch-until-fail        # Stop on first failure
+cimonitor --watch-and-retry 3       # Watch and auto-retry failed jobs up to 3 times
 
 # Debug specific jobs
 cimonitor --job-id 12345678 --raw-logs
@@ -36,7 +37,7 @@ cimonitor --job-id 12345678 --raw-logs
 
 **Instant CI Diagnosis** - Check any commit, branch, or PR for failures and get structured output perfect for programmatic analysis.
 
-**Real-Time Monitoring** - Use `--poll` to watch CI progress live, or `--poll-until-failure` for fail-fast workflows.
+**Real-Time Monitoring** - Use `--watch-until-completion` to watch CI progress live, `--watch-until-fail` for fail-fast workflows, or `--watch-and-retry N` to automatically retry failed jobs.
 
 **Targeted Debugging** - Get step-level failure details and filtered error logs without downloading massive raw logs.
 
@@ -45,8 +46,9 @@ cimonitor --job-id 12345678 --raw-logs
 ## Key Features
 
 - Step-level failure detection without downloading entire logs
-- Smart log filtering showing only error-related content  
-- Real-time CI status polling with fail-fast options
+- Smart log filtering showing only error-related content
+- Real-time CI status monitoring with fail-fast options
+- Automatic retry of failed jobs with configurable retry limits
 - Support for commits, branches, and pull requests
 - Raw log access for deep debugging
 
