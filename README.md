@@ -9,9 +9,8 @@ CI Monitor is a command-line tool that lets AI agents and humans instantly acces
 ## Automated CI Debugging with Claude Code
 
 ```bash
-# Single command to investigate and fix your PR's CI failures
-cimonitor logs --pr 123 | claude \
-  "Analyze these CI failures and fix the issues. Commit and push the fixes when done."
+# Single command to investigate and fix your active branch's CI failures
+cimonitor | claude "If the tests fail, fix and push. Notify me when finished or if you can't solve the problem."
 
 # Auto-retry flaky tests and get notified only for real failures
 cimonitor watch --pr 123 --retry 3 | claude \

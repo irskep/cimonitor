@@ -29,6 +29,11 @@ venv/
 ENV/
 env/
 
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
 # IDE
 .vscode/
 .idea/
