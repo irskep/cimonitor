@@ -1,0 +1,77 @@
+name: Test CI Integration
+
+on:
+  push:
+    branches: [ main, test-ci-integration ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-passing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+      
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
+      - name: Install dependencies
+        run: |
+          source $HOME/.cargo/env
+          uv sync
+      
+      - name: Run basic tests
+        run: |
+          source $HOME/.cargo/env
+          uv run ci_logs.py --help
+          echo "✅ Help command works correctly"
+
+  test-linting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+      
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
+      - name: Check Python syntax
+        run: |
+          source $HOME/.cargo/env
+          uv run python -m py_compile ci_logs.py
+          echo "✅ Python syntax is valid"
+
+  test-failing-job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Intentionally failing step
+        run: |
+          echo "This step will fail intentionally to test CI log fetching"
+          echo "ERROR: Simulated failure for testing purposes"
+          exit 1
+      
+      - name: This step should not run
+        run: echo "This should not be executed"
+
+  test-another-failure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Another intentional failure
+        run: |
+          echo "Starting another test that will fail..."
+          echo "ERROR: Another simulated error"
+          echo "FAILED: Test assertion failed"
+          false  # This command always returns non-zero exit code
