@@ -10,7 +10,8 @@ CI Monitor is a command-line tool that lets AI agents and humans instantly acces
 
 ```bash
 # Single command to investigate and fix your active branch's CI failures
-cimonitor | claude "If the tests fail, fix and push. Notify me when finished or if you can't solve the problem. Think hard."
+claude "Use cimonitor to watch my PR's CI. If the tests fail, fix and push. \
+Notify me when finished or if you can't solve the problem. Think hard."
 
 # Auto-retry flaky tests and get notified only for real failures
 cimonitor watch --pr 123 --retry 3 | claude \
