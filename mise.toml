@@ -47,3 +47,7 @@ run = "uv run pre-commit run --all-files"
 [tasks.poll-ci]
 description = "Poll CI status for current commit"
 run = "uv run cimonitor --poll --verbose"
+
+[tasks.bump-version]
+description = "Bump version (--patch by default, supports --minor, --major)"
+run = "scripts/bump-version"
