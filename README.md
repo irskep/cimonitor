@@ -136,19 +136,6 @@ Options:
 
 **Multi-Branch Operations** - Seamlessly check CI status across different branches, PRs, and commits in automated workflows.
 
-## Key Features
-
-- Step-level failure detection without downloading entire logs
-- Smart log filtering showing only error-related content
-- Real-time CI status monitoring with fail-fast options
-- Automatic retry of failed jobs with configurable retry limits (perfect for filtering out flaky tests)
-- Support for commits, branches, and pull requests
-- Raw log access for deep debugging
-
-## Requirements
-
-- Python 3.10+, Git repository with GitHub remote, GitHub personal access token
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
