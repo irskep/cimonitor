@@ -43,3 +43,8 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Planning and development docs (keep local only)
+todo.md
+REGRESSION_PREVENTION.md
+TEST_DATA.md
