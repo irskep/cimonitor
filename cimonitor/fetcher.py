@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 import requests
 from git import Repo
 
+from .constants import DEFAULT_PER_PAGE, FULL_SHA_LENGTH, LARGE_PER_PAGE, SHORT_SHA_LENGTH
+
 
 class GitHubCIFetcher:
     def __init__(self, github_token: str | None = None):
@@ -48,7 +50,7 @@ class GitHubCIFetcher:
             if repo.head.is_detached:
                 # If in detached HEAD state, use commit SHA
                 commit_sha = repo.head.commit.hexsha
-                branch_name = commit_sha[:8]  # Use short SHA as branch name
+                branch_name = commit_sha[:SHORT_SHA_LENGTH]  # Use short SHA as branch name
             else:
                 branch_name = repo.active_branch.name
                 commit_sha = repo.head.commit.hexsha
@@ -60,7 +62,7 @@ class GitHubCIFetcher:
     def get_workflow_runs(self, owner: str, repo: str, branch: str) -> list[dict[str, Any]]:
         """Get workflow runs for the current branch."""
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
-        params = {"branch": branch, "per_page": 10, "status": "completed"}
+        params = {"branch": branch, "per_page": DEFAULT_PER_PAGE, "status": "completed"}
 
         try:
             response = requests.get(url, headers=self.headers, params=params)
@@ -147,7 +149,7 @@ class GitHubCIFetcher:
         """Get all jobs (failed and successful) for a specific commit."""
         # First get all workflow runs for this commit
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
-        params = {"head_sha": commit_sha, "per_page": 50}
+        params = {"head_sha": commit_sha, "per_page": LARGE_PER_PAGE}
 
         all_jobs = []
 
@@ -171,7 +173,9 @@ class GitHubCIFetcher:
     def resolve_commit_sha(self, owner: str, repo: str, commit_ref: str) -> str:
         """Resolve a commit reference (SHA, branch, tag) to a full SHA."""
         # If it's already a full SHA (40 characters), return as-is
-        if len(commit_ref) == 40 and all(c in "0123456789abcdef" for c in commit_ref.lower()):
+        if len(commit_ref) == FULL_SHA_LENGTH and all(
+            c in "0123456789abcdef" for c in commit_ref.lower()
+        ):
             return commit_ref
 
         # Resolve via GitHub API
@@ -214,7 +218,7 @@ class GitHubCIFetcher:
     ) -> list[dict[str, Any]]:
         """Get workflow runs for a specific commit."""
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
-        params = {"head_sha": commit_sha, "per_page": 10}
+        params = {"head_sha": commit_sha, "per_page": DEFAULT_PER_PAGE}
 
         try:
             response = requests.get(url, headers=self.headers, params=params)
