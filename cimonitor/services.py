@@ -403,6 +403,14 @@ def _extract_step_logs_from_jobs(
                 "step_logs": filtered_step_logs,
                 "error": None,
             }
+        else:
+            # Fallback: show all logs when step parsing fails
+            return {
+                "name": job_name,
+                "job_name": job.get("name", "Unknown"),
+                "step_logs": {"Full Job Logs": logs_content},
+                "error": None,
+            }
 
     return {"name": job_name, "step_logs": {}, "error": "Could not retrieve job logs"}
 

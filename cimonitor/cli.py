@@ -1,5 +1,6 @@
 """Command-line interface for CI Monitor."""
 
+import re
 import sys
 import time
 
@@ -15,12 +16,73 @@ from .services import (
 )
 
 
+def parse_pr_input(pr_input):
+    """Parse PR input - can be either a number or a GitHub PR URL.
+
+    Returns:
+        tuple: (owner, repo, pr_number) if URL, or (None, None, pr_number) if just number
+    """
+    if not pr_input:
+        return None, None, None
+
+    # Try to parse as GitHub PR URL
+    url_pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
+    match = re.match(url_pattern, str(pr_input))
+
+    if match:
+        owner, repo, pr_number = match.groups()
+        return owner, repo, int(pr_number)
+
+    # Try to parse as just a number
+    try:
+        pr_number = int(pr_input)
+        return None, None, pr_number
+    except ValueError:
+        raise ValueError(
+            f"Invalid PR input: '{pr_input}'. Expected either a PR number (e.g., 123) or a GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)"
+        )
+
+
+def parse_repo_input(repo_input):
+    """Parse repository input in format 'owner/repo'.
+
+    Returns:
+        tuple: (owner, repo_name) or (None, None) if not provided
+    """
+    if not repo_input:
+        return None, None
+
+    if "/" not in repo_input:
+        raise ValueError(
+            f"Invalid repository format: '{repo_input}'. Expected format: 'owner/repo'"
+        )
+
+    parts = repo_input.split("/")
+    if len(parts) != 2:
+        raise ValueError(
+            f"Invalid repository format: '{repo_input}'. Expected format: 'owner/repo'"
+        )
+
+    owner, repo_name = parts
+    if not owner or not repo_name:
+        raise ValueError(
+            f"Invalid repository format: '{repo_input}'. Both owner and repository name must be non-empty"
+        )
+
+    return owner, repo_name
+
+
 # Shared options for targeting commits/PRs/branches
 def target_options(f):
     """Decorator to add common targeting options."""
+    f = click.option(
+        "--repo", help="Target repository in format 'owner/repo' (defaults to current repository)"
+    )(f)
     f = click.option("--branch", help="Specific branch to check (defaults to current branch)")(f)
     f = click.option("--commit", help="Specific commit SHA to check")(f)
-    f = click.option("--pr", "--pull-request", type=int, help="Pull request number to check")(f)
+    f = click.option(
+        "--pr", "--pull-request", help="Pull request number or GitHub PR URL to check"
+    )(f)
     return f
 
 
@@ -33,37 +95,52 @@ def validate_target_options(branch, commit, pr):
         sys.exit(1)
 
 
-def get_target_info(fetcher, branch, commit, pr, verbose=False):
+def get_target_info(fetcher, repo, branch, commit, pr, verbose=False):
     """Get target commit SHA and description from options."""
 
-    # Get repository info
-    owner, repo_name = fetcher.get_repo_info()
+    # Parse inputs
+    repo_owner, repo_name_from_arg = parse_repo_input(repo) if repo else (None, None)
+    pr_owner, pr_repo, pr_number = parse_pr_input(pr) if pr else (None, None, None)
+
+    # Determine repository - priority: --repo arg, PR URL, current repo
+    if repo_owner and repo_name_from_arg:
+        owner, repo_name = repo_owner, repo_name_from_arg
+    elif pr_owner and pr_repo:
+        owner, repo_name = pr_owner, pr_repo
+    else:
+        owner, repo_name = fetcher.get_repo_info()
+
     if verbose:
         click.echo(f"Repository: {owner}/{repo_name}")
 
     # Determine target commit SHA and description
-    if pr:
-        commit_sha = fetcher.get_pr_head_sha(owner, repo_name, pr)
-        target_description = f"PR #{pr}"
+    repo_suffix = f" in {owner}/{repo_name}" if repo_owner and repo_name_from_arg else ""
+
+    if pr_number:
+        commit_sha = fetcher.get_pr_head_sha(owner, repo_name, pr_number)
+        if pr_owner and pr_repo:
+            target_description = f"PR #{pr_number} in {owner}/{repo_name}"
+        else:
+            target_description = f"PR #{pr_number}{repo_suffix}"
         if verbose:
-            click.echo(f"Pull Request: #{pr}")
+            click.echo(f"Pull Request: #{pr_number}")
             click.echo(f"Head commit: {commit_sha}")
     elif commit:
         commit_sha = fetcher.resolve_commit_sha(owner, repo_name, commit)
-        target_description = f"commit {commit[:8] if len(commit) >= 8 else commit}"
+        target_description = f"commit {commit[:8] if len(commit) >= 8 else commit}{repo_suffix}"
         if verbose:
             click.echo(f"Commit: {commit}")
             click.echo(f"Resolved SHA: {commit_sha}")
     elif branch:
         commit_sha = fetcher.get_branch_head_sha(owner, repo_name, branch)
-        target_description = f"branch {branch}"
+        target_description = f"branch {branch}{repo_suffix}"
         if verbose:
             click.echo(f"Branch: {branch}")
             click.echo(f"Head commit: {commit_sha}")
     else:
         # Default: use current branch and commit
         current_branch, commit_sha = fetcher.get_current_branch_and_commit()
-        target_description = f"current branch ({current_branch})"
+        target_description = f"current branch ({current_branch}){repo_suffix}"
         if verbose:
             click.echo(f"Branch: {current_branch}")
             click.echo(f"Latest commit: {commit_sha}")
@@ -84,13 +161,13 @@ def cli(ctx):
 @cli.command()
 @target_options
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
-def status(branch, commit, pr, verbose):
+def status(repo, branch, commit, pr, verbose):
     """Show CI status for the target commit/branch/PR."""
     try:
         validate_target_options(branch, commit, pr)
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
-            fetcher, branch, commit, pr, verbose
+            fetcher, repo, branch, commit, pr, verbose
         )
 
         # Get CI status using business logic
@@ -117,13 +194,13 @@ def status(branch, commit, pr, verbose):
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--raw", is_flag=True, help="Show complete raw logs (for debugging)")
 @click.option("--job-id", type=int, help="Show logs for specific job ID only")
-def logs(branch, commit, pr, verbose, raw, job_id):
+def logs(repo, branch, commit, pr, verbose, raw, job_id):
     """Show error logs for failed CI jobs."""
     try:
         validate_target_options(branch, commit, pr)
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
-            fetcher, branch, commit, pr, verbose
+            fetcher, repo, branch, commit, pr, verbose
         )
 
         # Get logs using business logic
@@ -148,7 +225,7 @@ def logs(branch, commit, pr, verbose, raw, job_id):
 @click.option("--until-complete", is_flag=True, help="Wait until all workflows complete")
 @click.option("--until-fail", is_flag=True, help="Stop on first failure")
 @click.option("--retry", type=int, metavar="COUNT", help="Auto-retry failed jobs up to COUNT times")
-def watch(branch, commit, pr, verbose, until_complete, until_fail, retry):
+def watch(repo, branch, commit, pr, verbose, until_complete, until_fail, retry):
     """Watch CI status with real-time updates."""
     try:
         validate_target_options(branch, commit, pr)
@@ -156,7 +233,7 @@ def watch(branch, commit, pr, verbose, until_complete, until_fail, retry):
 
         fetcher = GitHubCIFetcher()
         owner, repo_name, commit_sha, target_description = get_target_info(
-            fetcher, branch, commit, pr, verbose
+            fetcher, repo, branch, commit, pr, verbose
         )
 
         _display_watch_header(target_description, commit_sha, retry)
