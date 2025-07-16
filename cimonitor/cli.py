@@ -194,7 +194,14 @@ def status(repo, branch, commit, pr, verbose):
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--raw", is_flag=True, help="Show complete raw logs (for debugging)")
 @click.option("--job-id", type=int, help="Show logs for specific job ID only")
-def logs(repo, branch, commit, pr, verbose, raw, job_id):
+@click.option(
+    "--show-groups/--no-show-groups", default=True, help="Show available log groups/steps summary"
+)
+@click.option("--step-filter", help="Filter to steps matching this pattern (e.g., 'test', 'build')")
+@click.option(
+    "--group-filter", help="Filter to groups matching this pattern (e.g., 'Run actions', 'mise')"
+)
+def logs(repo, branch, commit, pr, verbose, raw, job_id, show_groups, step_filter, group_filter):
     """Show error logs for failed CI jobs."""
     try:
         validate_target_options(branch, commit, pr)
@@ -205,7 +212,16 @@ def logs(repo, branch, commit, pr, verbose, raw, job_id):
 
         # Get logs using business logic
         log_result = get_job_logs(
-            fetcher, owner, repo_name, commit_sha, target_description, job_id, raw
+            fetcher,
+            owner,
+            repo_name,
+            commit_sha,
+            target_description,
+            job_id,
+            raw,
+            show_groups,
+            step_filter,
+            group_filter,
         )
 
         # Display logs based on type
@@ -437,15 +453,49 @@ def _display_raw_logs(log_result):
 
 
 def _display_filtered_logs(log_result):
-    """Display filtered error logs."""
+    """Display filtered error logs with group information."""
     target_description = log_result["target_description"]
     failed_jobs = log_result["failed_jobs"]
+    show_groups = log_result.get("show_groups", True)
+    groups = log_result.get("groups", [])
+    filters = log_result.get("filters", {})
 
     if not log_result["has_failures"]:
         click.echo(f"✅ No failing CI jobs found for {target_description}!")
         return
 
-    click.echo(f"📄 Error logs for {len(failed_jobs)} failing job(s) in {target_description}:")
+    # Show group summary and step status at the top
+    if show_groups and groups:
+        click.echo(f"📋 Available log groups in {target_description}:")
+        click.echo("=" * 60)
+
+        # Show groups with nesting
+        _display_groups_with_nesting(groups)
+
+        # Show step status summary
+        all_step_status = {}
+        for job_log in failed_jobs:
+            if "step_status" in job_log:
+                all_step_status.update(job_log["step_status"])
+
+        if all_step_status:
+            _display_step_status_summary(all_step_status)
+
+        # Show active filters
+        if filters.get("step_filter") or filters.get("group_filter"):
+            click.echo("🔍 Active Filters:")
+            if filters.get("step_filter"):
+                click.echo(f"  • Step filter: '{filters['step_filter']}'")
+            if filters.get("group_filter"):
+                click.echo(f"  • Group filter: '{filters['group_filter']}'")
+
+        click.echo("=" * 60)
+        click.echo("💡 Use --step-filter or --group-filter to focus on specific sections")
+        click.echo('💡 Example: --group-filter="mise run test"')
+        click.echo("💡 Use --show-groups=false to hide this summary")
+        click.echo()
+
+    click.echo(f"📄 Error logs for {len(failed_jobs)} failing job(s):")
     click.echo()
 
     for i, job_log in enumerate(failed_jobs, 1):
@@ -467,6 +517,54 @@ def _display_filtered_logs(log_result):
             click.echo("Could not retrieve job logs")
 
         click.echo()
+
+
+def _display_groups_with_nesting(groups):
+    """Display groups with proper nesting indentation."""
+    step_groups = [g for g in groups if g["type"] == "step"]
+    setup_groups = [g for g in groups if g["type"] == "setup"]
+
+    if setup_groups:
+        click.echo("🔧 Setup/System Groups:")
+        for group in setup_groups:
+            indent = "  " + "  " * group.get("nesting_level", 0)
+            click.echo(f"{indent}• {group['name']} (line {group['line_number']})")
+
+    if step_groups:
+        click.echo("🏃 Step Groups:")
+        for group in step_groups:
+            indent = "  " + "  " * group.get("nesting_level", 0)
+            click.echo(f"{indent}• {group['name']} (line {group['line_number']})")
+
+
+def _display_step_status_summary(step_status):
+    """Display deterministic step status summary."""
+    click.echo("📊 Step Status Summary:")
+
+    success_steps = []
+    failed_steps = []
+    other_steps = []
+
+    for step_name, status in step_status.items():
+        if status["conclusion"] == "success":
+            success_steps.append(step_name)
+        elif status["conclusion"] == "failure":
+            failed_steps.append(step_name)
+        else:
+            other_steps.append((step_name, status["conclusion"]))
+
+    if success_steps:
+        click.echo(f"  ✅ {len(success_steps)} successful steps")
+
+    if failed_steps:
+        click.echo(f"  ❌ {len(failed_steps)} failed steps:")
+        for step in failed_steps:
+            click.echo(f"    • {step}")
+
+    if other_steps:
+        for step_name, conclusion in other_steps:
+            icon = "⏭️" if conclusion == "skipped" else "🚫" if conclusion == "cancelled" else "❓"
+            click.echo(f"  {icon} {step_name} ({conclusion})")
 
 
 def _display_failed_jobs_status(fetcher, owner, repo_name, ci_status):

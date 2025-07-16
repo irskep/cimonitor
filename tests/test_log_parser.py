@@ -33,7 +33,7 @@ def test_filter_error_lines():
 
 
 def test_extract_step_logs():
-    """Test extracting logs for specific failed steps using real GitHub Actions log structure."""
+    """Test extracting logs for specific failed steps with exact name matching."""
     # This is based on actual GitHub Actions log data
     full_logs = """2025-07-13T04:07:48.8923897Z ##[group]Run actions/checkout@v4
 2025-07-13T04:07:48.8924737Z with:
@@ -55,7 +55,7 @@ def test_extract_step_logs():
 
     failed_steps = [
         {
-            "name": "Intentionally failing step",
+            "name": 'echo "This step will fail intentionally to test CI log fetching"',  # Exact match (without "Run ")
             "number": 3,
             "started_at": "2025-07-13T04:07:49.4696757Z",
             "completed_at": "2025-07-13T04:07:49.4732326Z",
@@ -64,8 +64,8 @@ def test_extract_step_logs():
 
     step_logs = LogParser.extract_step_logs(full_logs, failed_steps)
 
-    assert "Intentionally failing step" in step_logs
-    failing_log = step_logs["Intentionally failing step"]
+    assert 'echo "This step will fail intentionally to test CI log fetching"' in step_logs
+    failing_log = step_logs['echo "This step will fail intentionally to test CI log fetching"']
 
     # Should include the step content and error context after endgroup
     assert (
@@ -80,8 +80,8 @@ def test_extract_step_logs():
     assert "Run actions/checkout@v4" not in failing_log
 
 
-def test_extract_step_logs_with_partial_name_matching():
-    """Test that step extraction works with partial name matching when exact names don't match."""
+def test_extract_step_logs_fallback_when_no_match():
+    """Test that step extraction returns empty dict when no exact match is found."""
     # Real scenario where step name doesn't exactly match the ##[group]Run line
     full_logs = """2025-07-13T04:07:49.4696757Z ##[group]Run echo "This step will fail intentionally to test CI log fetching"
 2025-07-13T04:07:49.4697730Z echo "This step will fail intentionally to test CI log fetching"
@@ -93,7 +93,7 @@ def test_extract_step_logs_with_partial_name_matching():
     # The actual step name as reported by GitHub API vs the command in ##[group]Run
     failed_steps = [
         {
-            "name": "Intentionally failing step",  # This is how GitHub API reports it
+            "name": "Intentionally failing step",  # This won't match exactly
             "number": 3,
             "started_at": "2025-07-13T04:07:49.4696757Z",
             "completed_at": "2025-07-13T04:07:49.4732326Z",
@@ -102,7 +102,5 @@ def test_extract_step_logs_with_partial_name_matching():
 
     step_logs = LogParser.extract_step_logs(full_logs, failed_steps)
 
-    # Should find the step using partial name matching ("intentionally" keyword)
-    assert "Intentionally failing step" in step_logs
-    failing_log = step_logs["Intentionally failing step"]
-    assert "ERROR: Simulated failure for testing purposes" in failing_log
+    # Should return empty dict when no exact match is found (deterministic behavior)
+    assert step_logs == {}

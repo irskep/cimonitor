@@ -106,6 +106,9 @@ def get_job_logs(
     target_description: str,
     job_id: int | None = None,
     raw: bool = False,
+    show_groups: bool = True,
+    step_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> dict[str, Any]:
     """Get logs for failed CI jobs.
 
@@ -117,20 +120,34 @@ def get_job_logs(
         target_description: Human-readable description of target
         job_id: Specific job ID to get logs for (optional)
         raw: Whether to return raw logs
+        show_groups: Whether to show only group summary
+        step_filter: Filter pattern for steps
+        group_filter: Filter pattern for groups
 
     Returns:
         Dictionary with log information and metadata
     """
     # Handle specific job ID request
     if job_id:
-        return _get_specific_job_logs(fetcher, owner, repo_name, job_id)
+        return _get_specific_job_logs(
+            fetcher, owner, repo_name, job_id, show_groups, step_filter, group_filter
+        )
 
     # Handle raw logs request
     if raw:
         return _get_raw_logs_for_commit(fetcher, owner, repo_name, commit_sha)
 
-    # Default: return filtered error logs
-    return _get_filtered_error_logs(fetcher, owner, repo_name, commit_sha, target_description)
+    # Default: return filtered error logs with group analysis
+    return _get_filtered_error_logs(
+        fetcher,
+        owner,
+        repo_name,
+        commit_sha,
+        target_description,
+        show_groups,
+        step_filter,
+        group_filter,
+    )
 
 
 def watch_ci_status(
@@ -272,13 +289,32 @@ def _calculate_step_duration(step: dict[str, Any]) -> str:
 
 
 def _get_specific_job_logs(
-    fetcher: GitHubCIFetcher, owner: str, repo_name: str, job_id: int
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    job_id: int,
+    show_groups: bool = True,
+    step_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> dict[str, Any]:
     """Get logs for a specific job ID."""
     job_info = fetcher.get_job_by_id(owner, repo_name, job_id)
     logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
 
-    return {"type": "specific_job", "job_info": job_info, "logs": logs_content}
+    # Add group analysis
+    groups = LogParser.parse_log_groups(logs_content)
+
+    # Apply filters
+    filtered_groups = _apply_group_filters(groups, step_filter, group_filter)
+
+    return {
+        "type": "specific_job",
+        "job_info": job_info,
+        "logs": logs_content,
+        "groups": filtered_groups,
+        "show_groups": show_groups,
+        "filters": {"step_filter": step_filter, "group_filter": group_filter},
+    }
 
 
 def _get_raw_logs_for_commit(
@@ -304,8 +340,52 @@ def _get_raw_logs_for_commit(
     return {"type": "raw_logs", "failed_jobs": job_logs, "has_failures": True}
 
 
+def _apply_group_filters(
+    groups: list[dict], step_filter: str | None, group_filter: str | None
+) -> list[dict]:
+    """Apply step and group filters to the list of groups."""
+    filtered = groups
+
+    if step_filter:
+        filtered = [
+            g for g in filtered if g["type"] == "step" and step_filter.lower() in g["name"].lower()
+        ]
+
+    if group_filter:
+        filtered = [g for g in filtered if group_filter.lower() in g["name"].lower()]
+
+    return filtered
+
+
+def _remove_timestamps(logs: str) -> str:
+    """Remove timestamp prefixes from log lines for cleaner output."""
+    lines = logs.split("\n")
+    cleaned_lines = []
+
+    for line in lines:
+        # Remove timestamp prefix (format: 2025-07-16T03:13:13.5152643Z)
+        if line.startswith("20") and "T" in line and "Z" in line:
+            # Find the first space after the timestamp and remove everything before it
+            parts = line.split(" ", 1)
+            if len(parts) > 1:
+                cleaned_lines.append(parts[1])
+            else:
+                cleaned_lines.append(line)
+        else:
+            cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines)
+
+
 def _get_filtered_error_logs(
-    fetcher: GitHubCIFetcher, owner: str, repo_name: str, commit_sha: str, target_description: str
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    commit_sha: str,
+    target_description: str,
+    show_groups: bool = True,
+    step_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> dict[str, Any]:
     """Get filtered error logs for failed jobs."""
     failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
@@ -316,24 +396,48 @@ def _get_filtered_error_logs(
             "target_description": target_description,
             "failed_jobs": [],
             "has_failures": False,
+            "groups": [],
+            "show_groups": show_groups,
+            "filters": {"step_filter": step_filter, "group_filter": group_filter},
         }
 
     job_logs = []
+    all_groups = []
+    seen_groups = set()  # Track unique groups by (name, type)
+
     for check_run in failed_check_runs:
-        job_log_info = _process_check_run_for_logs(fetcher, owner, repo_name, check_run)
+        job_log_info = _process_check_run_for_logs(
+            fetcher, owner, repo_name, check_run, show_groups, step_filter, group_filter
+        )
         if job_log_info:
             job_logs.append(job_log_info)
+            # Collect groups from each job, avoiding duplicates
+            if "groups" in job_log_info:
+                for group in job_log_info["groups"]:
+                    group_key = (group["name"], group["type"])
+                    if group_key not in seen_groups:
+                        seen_groups.add(group_key)
+                        all_groups.append(group)
 
     return {
         "type": "filtered_logs",
         "target_description": target_description,
         "failed_jobs": job_logs,
         "has_failures": True,
+        "groups": all_groups,
+        "show_groups": show_groups,
+        "filters": {"step_filter": step_filter, "group_filter": group_filter},
     }
 
 
 def _process_check_run_for_logs(
-    fetcher: GitHubCIFetcher, owner: str, repo_name: str, check_run: dict[str, Any]
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    check_run: dict[str, Any],
+    show_groups: bool = True,
+    step_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> dict[str, Any] | None:
     """Process a single check run to extract step logs."""
     name = check_run.get("name", "Unknown Job")
@@ -354,7 +458,9 @@ def _process_check_run_for_logs(
             return None
 
         jobs = fetcher.get_workflow_jobs(owner, repo_name, run_id)
-        return _extract_step_logs_from_jobs(fetcher, owner, repo_name, jobs, name)
+        return _extract_step_logs_from_jobs(
+            fetcher, owner, repo_name, jobs, name, show_groups, step_filter, group_filter
+        )
 
     except Exception as e:
         return {
@@ -366,7 +472,14 @@ def _process_check_run_for_logs(
 
 
 def _extract_step_logs_from_jobs(
-    fetcher: GitHubCIFetcher, owner: str, repo_name: str, jobs: list[dict[str, Any]], job_name: str
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    jobs: list[dict[str, Any]],
+    job_name: str,
+    show_groups: bool = True,
+    step_filter: str | None = None,
+    group_filter: str | None = None,
 ) -> dict[str, Any] | None:
     """Extract step logs from workflow jobs."""
     for job in jobs:
@@ -380,35 +493,47 @@ def _extract_step_logs_from_jobs(
             continue
 
         logs_content = fetcher.get_job_logs(owner, repo_name, job_id)
-        step_logs = LogParser.extract_step_logs(logs_content, failed_steps)
+        all_steps = job.get("steps", [])
+
+        # Add group analysis and step status
+        groups = LogParser.parse_log_groups(logs_content)
+        filtered_groups = _apply_group_filters(groups, step_filter, group_filter)
+        step_status = LogParser.get_step_status_info(all_steps, failed_steps)
+
+        step_logs = LogParser.extract_step_logs(logs_content, failed_steps, all_steps)
 
         if step_logs:
-            # Filter each step's logs for errors
+            # Filter each step's logs for errors and remove timestamps
             filtered_step_logs = {}
             for step_name, step_log in step_logs.items():
                 if step_log.strip():
                     shown_lines = LogParser.filter_error_lines(step_log)
                     if shown_lines:
-                        filtered_step_logs[step_name] = "\n".join(shown_lines)
+                        clean_log = "\n".join(shown_lines)
+                        filtered_step_logs[step_name] = _remove_timestamps(clean_log)
                     else:
                         # Fallback to last few lines
                         step_lines = step_log.split("\n")
-                        filtered_step_logs[step_name] = "\n".join(
-                            line for line in step_lines[-10:] if line.strip()
-                        )
+                        clean_log = "\n".join(line for line in step_lines[-10:] if line.strip())
+                        filtered_step_logs[step_name] = _remove_timestamps(clean_log)
 
             return {
                 "name": job_name,
                 "job_name": job.get("name", "Unknown"),
                 "step_logs": filtered_step_logs,
+                "groups": filtered_groups,
+                "step_status": step_status,
                 "error": None,
             }
         else:
-            # Fallback: show all logs when step parsing fails
+            # Fallback: show all logs when step parsing fails (remove timestamps)
+            clean_logs = _remove_timestamps(logs_content)
             return {
                 "name": job_name,
                 "job_name": job.get("name", "Unknown"),
-                "step_logs": {"Full Job Logs": logs_content},
+                "step_logs": {"Full Job Logs": clean_logs},
+                "groups": filtered_groups,
+                "step_status": step_status,
                 "error": None,
             }
 
