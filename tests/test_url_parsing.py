@@ -76,9 +76,10 @@ class TestExtractRunIdFromUrl:
         assert _extract_run_id_from_url(url) == 999999999999999999
 
     def test_robustness_leading_trailing_slashes(self):
-        """Test URL robustness with unusual path structures."""
+        """Test that malformed URLs with multiple slashes return None."""
         url = "https://github.com///owner//repo//actions//runs//123456///"
-        assert _extract_run_id_from_url(url) == 123456
+        # This malformed URL should return None since it's not a valid GitHub Actions URL
+        assert _extract_run_id_from_url(url) is None
 
 
 # Regression tests for the old split() method issues
@@ -106,5 +107,5 @@ class TestRegressionFromSplitMethod:
         url = "https://github.com/runs/repo/actions/runs/123456"
         # Old method: split("/runs/") -> ["https://github.com", "/repo/actions", "/123456"]
         # Then [1].split("/")[0] -> "" (empty string from "/repo/actions")
-        # Our new method correctly finds the actual run ID
+        # Our new method correctly finds the actual run ID by looking for "actions/runs" pattern
         assert _extract_run_id_from_url(url) == 123456

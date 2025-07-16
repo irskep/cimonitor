@@ -276,7 +276,12 @@ def _extract_run_id_from_url(html_url: str) -> int | None:
 
         # Look for pattern: [..., 'actions', 'runs', '<run_id>', ...]
         for i, part in enumerate(path_parts):
-            if part == "runs" and i + 1 < len(path_parts):
+            if (
+                part == "runs"
+                and i > 0
+                and path_parts[i - 1] == "actions"
+                and i + 1 < len(path_parts)
+            ):
                 run_id_str = path_parts[i + 1]
                 if run_id_str.isdigit():
                     return int(run_id_str)
@@ -509,7 +514,7 @@ def _process_check_run_for_logs(
             "name": name,
             "html_url": html_url,
             "step_logs": {},
-            "error": f"Unexpected error processing job details: {e}",
+            "error": f"Unexpected error processing job details: {type(e).__name__}: {e}",
         }
 
 
