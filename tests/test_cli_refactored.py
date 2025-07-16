@@ -162,7 +162,7 @@ def test_logs_command_filtered(mock_get_job_logs, mock_get_target_info, mock_fet
     result = runner.invoke(cli, ["logs"])
 
     assert result.exit_code == 0
-    assert "📄 Error logs for 1 failing job(s) in test branch:" in result.output
+    assert "📄 Error logs for 1 failing job(s):" in result.output
     assert "LOGS #1: Test Job" in result.output
     assert "📄 Logs for Failed Step: Test Step" in result.output
     assert "error log content" in result.output
