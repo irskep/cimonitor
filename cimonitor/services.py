@@ -6,7 +6,9 @@ All functions use early-return patterns to avoid deep nesting.
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
+from .constants import FALLBACK_LOG_LINES
 from .fetcher import GitHubCIFetcher
 from .log_parser import LogParser
 
@@ -91,8 +93,13 @@ def get_job_details_for_status(
         jobs = fetcher.get_workflow_jobs(owner, repo_name, run_id)
         _add_failed_steps_to_job_details(fetcher, jobs, job_details)
 
+    except (ValueError, KeyError, TypeError):
+        # Return basic job details if we can't parse the step information
+        # This can happen with unexpected API response format or missing data
+        pass
     except Exception:
-        # Return basic job details even if we can't get step information
+        # Log unexpected errors but don't crash - return basic job details
+        # TODO: Add proper logging here
         pass
 
     return job_details
@@ -248,12 +255,40 @@ def retry_failed_workflows(
 
 
 def _extract_run_id_from_url(html_url: str) -> int | None:
-    """Extract run ID from GitHub Actions URL."""
-    if "actions/runs" not in html_url:
+    """Extract run ID from GitHub Actions URL using proper URL parsing.
+
+    Args:
+        html_url: GitHub Actions URL like 'https://github.com/owner/repo/actions/runs/123456/jobs/789'
+
+    Returns:
+        The run ID (123456) or None if URL is invalid or doesn't contain a run ID
+    """
+    if not html_url or "actions/runs" not in html_url:
         return None
+
     try:
-        return int(html_url.split("/runs/")[1].split("/")[0])
-    except (IndexError, ValueError):
+        parsed_url = urlparse(html_url)
+        if not parsed_url.path:
+            return None
+
+        # Split path into components and find 'runs' segment
+        path_parts = [part for part in parsed_url.path.split("/") if part]
+
+        # Look for pattern: [..., 'actions', 'runs', '<run_id>', ...]
+        for i, part in enumerate(path_parts):
+            if (
+                part == "runs"
+                and i > 0
+                and path_parts[i - 1] == "actions"
+                and i + 1 < len(path_parts)
+            ):
+                run_id_str = path_parts[i + 1]
+                if run_id_str.isdigit():
+                    return int(run_id_str)
+                break
+
+        return None
+    except (ValueError, AttributeError):
         return None
 
 
@@ -284,7 +319,12 @@ def _calculate_step_duration(step: dict[str, Any]) -> str:
         start = datetime.fromisoformat(step["started_at"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(step["completed_at"].replace("Z", "+00:00"))
         return f"{(end - start).total_seconds():.1f}s"
+    except (ValueError, TypeError):
+        # Handle invalid timestamp format or missing data
+        return "Unknown"
     except Exception:
+        # Handle other unexpected errors in datetime calculation
+        # TODO: Add proper logging here
         return "Unknown"
 
 
@@ -462,12 +502,19 @@ def _process_check_run_for_logs(
             fetcher, owner, repo_name, jobs, name, show_groups, step_filter, group_filter
         )
 
+    except (ValueError, KeyError, TypeError) as e:
+        return {
+            "name": name,
+            "html_url": html_url,
+            "step_logs": {},
+            "error": f"Failed to parse job data: {e}",
+        }
     except Exception as e:
         return {
             "name": name,
             "html_url": html_url,
             "step_logs": {},
-            "error": f"Error processing job details: {e}",
+            "error": f"Unexpected error processing job details: {type(e).__name__}: {e}",
         }
 
 
@@ -514,7 +561,9 @@ def _extract_step_logs_from_jobs(
                     else:
                         # Fallback to last few lines
                         step_lines = step_log.split("\n")
-                        clean_log = "\n".join(line for line in step_lines[-10:] if line.strip())
+                        clean_log = "\n".join(
+                            line for line in step_lines[-FALLBACK_LOG_LINES:] if line.strip()
+                        )
                         filtered_step_logs[step_name] = _remove_timestamps(clean_log)
 
             return {
@@ -624,5 +673,10 @@ def _calculate_workflow_duration(run: dict[str, Any]) -> str:
             end = datetime.now(start.tzinfo)
         duration = end - start
         return f"{int(duration.total_seconds())}s"
+    except (ValueError, TypeError):
+        # Handle invalid timestamp format or missing timezone info
+        return "unknown"
     except Exception:
+        # Handle other unexpected errors in datetime calculation
+        # TODO: Add proper logging here
         return "unknown"

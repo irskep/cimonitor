@@ -6,6 +6,7 @@ import time
 
 import click
 
+from .constants import MAX_POLLS, POLL_INTERVAL_SECONDS, RETRY_SLEEP_SECONDS
 from .fetcher import GitHubCIFetcher
 from .services import (
     get_ci_status,
@@ -303,8 +304,8 @@ def _run_watch_loop(
     fetcher, owner, repo_name, commit_sha, target_description, until_complete, until_fail, retry
 ):
     """Run the main watch polling loop."""
-    poll_interval = 10  # seconds
-    max_polls = 120  # 20 minutes total
+    poll_interval = POLL_INTERVAL_SECONDS
+    max_polls = MAX_POLLS
     poll_count = 0
     retry_count = 0
 
@@ -342,7 +343,7 @@ def _run_watch_loop(
 
                 # Reset polling for the retry
                 poll_count = 0
-                time.sleep(30)  # Wait longer before starting to poll again
+                time.sleep(RETRY_SLEEP_SECONDS)  # Wait longer before starting to poll again
                 continue
 
             # Continue polling

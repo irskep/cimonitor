@@ -2,6 +2,14 @@
 
 from typing import Any
 
+from .constants import (
+    CURRENT_YEAR_PREFIX,
+    MIN_WORD_LENGTH_PARTIAL,
+    MIN_WORD_LENGTH_SEMANTIC,
+    POST_ENDGROUP_LINES,
+    TIMESTAMP_TOLERANCE_SECONDS,
+)
+
 
 class LogParser:
     @staticmethod
@@ -114,7 +122,7 @@ class LogParser:
                         # Only accept exact matches within 1 second (to account for subsecond precision)
                         time_diff = abs((log_timestamp - step_start).total_seconds())
 
-                        if time_diff <= 1.0:
+                        if time_diff <= TIMESTAMP_TOLERANCE_SECONDS:
                             # Extract this section
                             step_lines = [line]
 
@@ -130,10 +138,11 @@ class LogParser:
 
                             return "\n".join(step_lines) if step_lines else None
 
-                    except Exception:
+                    except (ValueError, TypeError):
+                        # Skip lines with invalid timestamp format
                         continue
 
-        except Exception:
+        except (ValueError, TypeError):
             # If timestamp parsing fails, fall back to other methods
             pass
 
@@ -171,7 +180,9 @@ class LogParser:
         # For other step types, try to match by semantic similarity
         # Extract key words from step name (excluding "Run")
         step_words = [
-            word.lower() for word in step_name.replace("Run ", "").split() if len(word) > 2
+            word.lower()
+            for word in step_name.replace("Run ", "").split()
+            if len(word) > MIN_WORD_LENGTH_SEMANTIC
         ]
 
         if step_words:
@@ -285,7 +296,7 @@ class LogParser:
     @staticmethod
     def _extract_step_by_partial_name(log_lines: list[str], step_name: str) -> str | None:
         """Extract step logs using partial name matching as fallback."""
-        keywords = [word for word in step_name.split() if len(word) > 3]
+        keywords = [word for word in step_name.split() if len(word) > MIN_WORD_LENGTH_PARTIAL]
         if not keywords:
             return None
 
@@ -318,7 +329,9 @@ class LogParser:
         log_lines: list[str], endgroup_index: int, step_lines: list[str]
     ) -> None:
         """Capture additional lines after ##[endgroup] for error context."""
-        for k in range(endgroup_index + 1, min(endgroup_index + 10, len(log_lines))):
+        for k in range(
+            endgroup_index + 1, min(endgroup_index + POST_ENDGROUP_LINES, len(log_lines))
+        ):
             error_line = log_lines[k]
             step_lines.append(error_line)
 
@@ -350,7 +363,7 @@ class LogParser:
                 continue
 
             # Include non-timestamp lines (command output, not just timestamps)
-            if not line.startswith("2025-"):
+            if not line.startswith(CURRENT_YEAR_PREFIX):
                 shown_lines.append(line)
 
         return shown_lines
