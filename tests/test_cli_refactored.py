@@ -233,6 +233,72 @@ def test_watch_command_failure(
     assert "💥 Some workflows failed!" in result.output
 
 
+@patch("cimonitor.cli.GitHubCIFetcher")
+@patch("cimonitor.cli.get_target_info")
+@patch("cimonitor.cli.watch_ci_status")
+@patch("cimonitor.cli.time.sleep")  # Mock sleep to speed up test
+def test_watch_command_initial_wait_for_no_runs(
+    mock_sleep, mock_watch_ci_status, mock_get_target_info, mock_fetcher_class, runner
+):
+    """Test watch command waits 10 seconds on initial 'no_runs' status."""
+    # Setup mocks
+    mock_fetcher_class.return_value = Mock()
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+
+    # First call returns no_runs, second call (after wait) returns success
+    mock_watch_ci_status.side_effect = [
+        {"status": "no_runs", "continue_watching": True, "message": "No workflow runs found yet"},
+        {
+            "status": "success",
+            "continue_watching": False,
+            "workflows": [
+                {"name": "Test", "emoji": "✅", "status": "completed", "duration": "300s"}
+            ],
+        },
+    ]
+
+    result = runner.invoke(cli, ["watch"])
+
+    assert result.exit_code == 0
+    assert "⏳ Waiting 10 seconds for workflow runs to appear..." in result.output
+    assert "🎉 All workflows completed successfully!" in result.output
+
+    # Verify sleep was called with 10 seconds for the initial wait
+    mock_sleep.assert_called_with(10)
+    # Verify watch_ci_status was called twice (initial check, then after wait)
+    assert mock_watch_ci_status.call_count == 2
+
+
+@patch("cimonitor.cli.GitHubCIFetcher")
+@patch("cimonitor.cli.get_target_info")
+@patch("cimonitor.cli.watch_ci_status")
+@patch("cimonitor.cli.time.sleep")  # Mock sleep to speed up test
+def test_watch_command_no_runs_after_wait(
+    mock_sleep, mock_watch_ci_status, mock_get_target_info, mock_fetcher_class, runner
+):
+    """Test watch command shows proper message when no runs found after initial wait."""
+    # Setup mocks
+    mock_fetcher_class.return_value = Mock()
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+
+    # Both calls return no_runs (persists after wait)
+    mock_watch_ci_status.return_value = {
+        "status": "no_runs",
+        "continue_watching": True,
+        "message": "No workflow runs found yet",
+    }
+
+    result = runner.invoke(cli, ["watch"])
+
+    assert "⏳ Waiting 10 seconds for workflow runs to appear..." in result.output
+    assert "⏳ No workflow runs have been reported yet..." in result.output
+
+    # Verify sleep was called (10 second wait + normal polling interval)
+    assert mock_sleep.called
+    # Verify watch_ci_status was called at least twice (initial + after wait + polling)
+    assert mock_watch_ci_status.call_count >= 2
+
+
 def test_target_validation(runner):
     """Test target option validation."""
     result = runner.invoke(cli, ["status", "--branch", "main", "--commit", "abc123"])

@@ -308,6 +308,7 @@ def _run_watch_loop(
     max_polls = MAX_POLLS
     poll_count = 0
     retry_count = 0
+    initial_no_runs_wait_done = False
 
     try:
         while poll_count < max_polls:
@@ -322,6 +323,24 @@ def _run_watch_loop(
                 until_fail,
                 retry_count if retry else None,
             )
+
+            # Handle initial wait for workflow runs to appear
+            if watch_result["status"] == "no_runs" and not initial_no_runs_wait_done:
+                click.echo("⏳ Waiting 10 seconds for workflow runs to appear...")
+                time.sleep(10)
+                initial_no_runs_wait_done = True
+
+                # Check again after waiting
+                watch_result = watch_ci_status(
+                    fetcher,
+                    owner,
+                    repo_name,
+                    commit_sha,
+                    target_description,
+                    until_complete,
+                    until_fail,
+                    retry_count if retry else None,
+                )
 
             # Display current status
             _display_watch_status(watch_result)
@@ -364,7 +383,7 @@ def _run_watch_loop(
 def _display_watch_status(watch_result):
     """Display status for current watch poll."""
     if watch_result["status"] == "no_runs":
-        click.echo("⏳ No workflow runs found yet...")
+        click.echo("⏳ No workflow runs have been reported yet...")
         return
 
     workflows = watch_result.get("workflows", [])
