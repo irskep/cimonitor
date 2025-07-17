@@ -5,11 +5,11 @@
 ## Unreleased
 
 ### Added
-- Initial 10-second wait in watch command before reporting "no workflow runs" to allow time for CI jobs to appear
 
-## 0.1.5 - TBD
+## 0.1.5 - 2025-07-17
 
 ### Added
+- Initial 10-second wait in watch command before reporting "no workflow runs" to allow time for CI jobs to appear
 
 ## 0.1.4 - 2025-07-16
 
