@@ -1,6 +1,6 @@
 [project]
 name = "cimonitor"
-version = "0.1.6"
+version = "0.1.7"
 description = "Monitor GitHub CI workflows, fetch logs, and track build status"
 readme = "README.md"
 license = { text = "MIT" }
