@@ -6,9 +6,10 @@
 
 ### Added
 
-## 0.1.6 - TBD
+## 0.1.6 - 2025-07-18
 
 ### Added
+- Merge conflict detection for pull requests
 
 ## 0.1.5 - 2025-07-17
 
