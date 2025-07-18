@@ -146,7 +146,7 @@ def get_target_info(fetcher, repo, branch, commit, pr, verbose=False):
             click.echo(f"Branch: {current_branch}")
             click.echo(f"Latest commit: {commit_sha}")
 
-    return owner, repo_name, commit_sha, target_description
+    return owner, repo_name, commit_sha, target_description, pr_number
 
 
 @click.group(invoke_without_command=True)
@@ -167,12 +167,19 @@ def status(repo, branch, commit, pr, verbose):
     try:
         validate_target_options(branch, commit, pr)
         fetcher = GitHubCIFetcher()
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             fetcher, repo, branch, commit, pr, verbose
         )
 
         # Get CI status using business logic
-        ci_status = get_ci_status(fetcher, owner, repo_name, commit_sha, target_description)
+        ci_status = get_ci_status(
+            fetcher, owner, repo_name, commit_sha, target_description, pr_number
+        )
+
+        # Check for merge conflicts first - only show if there are actual conflicts
+        if ci_status.merge_conflict_info and _has_merge_conflicts(ci_status.merge_conflict_info):
+            _handle_merge_conflict_status(ci_status)
+            return
 
         # Early return for no failures
         if not ci_status.has_failures:
@@ -207,7 +214,7 @@ def logs(repo, branch, commit, pr, verbose, raw, job_id, show_groups, step_filte
     try:
         validate_target_options(branch, commit, pr)
         fetcher = GitHubCIFetcher()
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             fetcher, repo, branch, commit, pr, verbose
         )
 
@@ -249,7 +256,7 @@ def watch(repo, branch, commit, pr, verbose, until_complete, until_fail, retry):
         _validate_watch_options(until_complete, until_fail, retry)
 
         fetcher = GitHubCIFetcher()
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             fetcher, repo, branch, commit, pr, verbose
         )
 
@@ -585,6 +592,74 @@ def _display_step_status_summary(step_status):
         for step_name, conclusion in other_steps:
             icon = "⏭️" if conclusion == "skipped" else "🚫" if conclusion == "cancelled" else "❓"
             click.echo(f"  {icon} {step_name} ({conclusion})")
+
+
+def _has_merge_conflicts(merge_info):
+    """Check if the merge info indicates actual merge conflicts."""
+    if not merge_info:
+        return False
+
+    mergeable = merge_info.get("mergeable")
+    mergeable_state = merge_info.get("mergeable_state")
+
+    # These states indicate merge conflicts or blocking issues
+    return (
+        mergeable is False
+        or mergeable_state == "dirty"
+        or mergeable_state == "blocked"
+        or merge_info.get("state") == "closed"
+        or (mergeable is None and mergeable_state == "unknown")
+    )
+
+
+def _handle_merge_conflict_status(ci_status):
+    """Handle and display merge conflict status information."""
+    merge_info = ci_status.merge_conflict_info
+    if not merge_info:
+        return
+
+    mergeable = merge_info.get("mergeable")
+    mergeable_state = merge_info.get("mergeable_state")
+    state = merge_info.get("state")
+    draft = merge_info.get("draft", False)
+
+    # Check for merge conflicts (dirty state indicates conflicts)
+    if mergeable is False or mergeable_state == "dirty":
+        click.echo(f"🚫 {ci_status.target_description} has merge conflicts!")
+        click.echo("💡 No workflows will run until merge conflicts are resolved.")
+        click.echo(f"🔍 Mergeable state: {mergeable_state}")
+        if merge_info.get("base_ref"):
+            click.echo(f"📋 Base branch: {merge_info['base_ref']}")
+        click.echo("🛠️  Please resolve conflicts and push updates to trigger workflows.")
+        return
+
+    # Check for other blocking states
+    if mergeable_state == "blocked":
+        click.echo(f"🔒 {ci_status.target_description} is blocked from merging.")
+        click.echo(
+            "💡 This may be due to required status checks, reviews, or other branch protection rules."
+        )
+        if not ci_status.has_failures:
+            click.echo("✅ No CI failures detected, but merge is blocked by repository settings.")
+        return
+
+    if state == "closed":
+        click.echo(f"🚪 {ci_status.target_description} is closed.")
+        return
+
+    if draft:
+        click.echo(f"📝 {ci_status.target_description} is in draft state.")
+        if not ci_status.has_failures:
+            click.echo("✅ No CI failures detected for this draft PR.")
+        return
+
+    # Handle unknown mergeable state
+    if mergeable is None and mergeable_state == "unknown":
+        click.echo(f"❓ {ci_status.target_description} merge status is still being computed.")
+        click.echo(
+            "💡 GitHub is still calculating merge conflicts. Please wait a moment and try again."
+        )
+        return
 
 
 def _display_failed_jobs_status(fetcher, owner, repo_name, ci_status):

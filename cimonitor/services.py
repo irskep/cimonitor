@@ -20,6 +20,7 @@ class CIStatusResult:
         self.failed_check_runs = failed_check_runs
         self.target_description = target_description
         self.has_failures = len(failed_check_runs) > 0
+        self.merge_conflict_info: dict[str, Any] | None = None
 
 
 class WorkflowStepInfo:
@@ -43,7 +44,12 @@ class JobDetails:
 
 
 def get_ci_status(
-    fetcher: GitHubCIFetcher, owner: str, repo_name: str, commit_sha: str, target_description: str
+    fetcher: GitHubCIFetcher,
+    owner: str,
+    repo_name: str,
+    commit_sha: str,
+    target_description: str,
+    pr_number: int | None = None,
 ) -> CIStatusResult:
     """Get CI status for a commit with detailed job information.
 
@@ -53,12 +59,24 @@ def get_ci_status(
         repo_name: Repository name
         commit_sha: Target commit SHA
         target_description: Human-readable description of target
+        pr_number: Pull request number (optional)
 
     Returns:
         CIStatusResult with failed jobs and details
     """
     failed_check_runs = fetcher.find_failed_jobs_in_latest_run(owner, repo_name, commit_sha)
-    return CIStatusResult(failed_check_runs, target_description)
+    result = CIStatusResult(failed_check_runs, target_description)
+
+    # Check for merge conflicts if this is a PR
+    if pr_number:
+        try:
+            merge_status = fetcher.get_pr_merge_status(owner, repo_name, pr_number)
+            result.merge_conflict_info = merge_status
+        except ValueError:
+            # If we can't get merge status, don't fail the whole operation
+            pass
+
+    return result
 
 
 def get_job_details_for_status(

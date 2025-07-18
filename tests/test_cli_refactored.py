@@ -30,7 +30,7 @@ def test_status_command_no_failures(
     """Test status command with no failures."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_get_ci_status.return_value = CIStatusResult([], "test branch")
 
     result = runner.invoke(cli, ["status"])
@@ -50,7 +50,7 @@ def test_status_command_with_failures(
     # Setup mocks
     mock_fetcher = Mock()
     mock_fetcher_class.return_value = mock_fetcher
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
 
     failed_runs = [{"name": "Test Job", "conclusion": "failure", "html_url": "https://example.com"}]
     mock_get_ci_status.return_value = CIStatusResult(failed_runs, "test branch")
@@ -77,7 +77,7 @@ def test_logs_command_no_failures(
     """Test logs command with no failures."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_get_job_logs.return_value = {
         "type": "filtered_logs",
         "target_description": "test branch",
@@ -100,7 +100,7 @@ def test_logs_command_with_specific_job(
     """Test logs command with specific job ID."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_get_job_logs.return_value = {
         "type": "specific_job",
         "job_info": {
@@ -127,7 +127,7 @@ def test_logs_command_raw(mock_get_job_logs, mock_get_target_info, mock_fetcher_
     """Test logs command with raw flag."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_get_job_logs.return_value = {
         "type": "raw_logs",
         "failed_jobs": [{"job": {"name": "Test Job", "id": 123}, "logs": "raw log content"}],
@@ -149,7 +149,7 @@ def test_logs_command_filtered(mock_get_job_logs, mock_get_target_info, mock_fet
     """Test logs command with filtered output."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_get_job_logs.return_value = {
         "type": "filtered_logs",
         "target_description": "test branch",
@@ -196,7 +196,7 @@ def test_watch_command_success(
     """Test watch command with successful completion."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_watch_ci_status.return_value = {
         "status": "success",
         "continue_watching": False,
@@ -220,7 +220,7 @@ def test_watch_command_failure(
     """Test watch command with failure."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
     mock_watch_ci_status.return_value = {
         "status": "failed",
         "continue_watching": False,
@@ -243,7 +243,7 @@ def test_watch_command_initial_wait_for_no_runs(
     """Test watch command waits 10 seconds on initial 'no_runs' status."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
 
     # First call returns no_runs, second call (after wait) returns success
     mock_watch_ci_status.side_effect = [
@@ -279,7 +279,7 @@ def test_watch_command_no_runs_after_wait(
     """Test watch command shows proper message when no runs found after initial wait."""
     # Setup mocks
     mock_fetcher_class.return_value = Mock()
-    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch")
+    mock_get_target_info.return_value = ("owner", "repo", "abc123", "test branch", None)
 
     # Both calls return no_runs (persists after wait)
     mock_watch_ci_status.return_value = {
