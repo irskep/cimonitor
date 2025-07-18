@@ -201,6 +201,30 @@ class GitHubCIFetcher:
         except requests.RequestException as e:
             raise ValueError(f"Failed to get PR {pr_number} head SHA: {e}")
 
+    def get_pr_merge_status(self, owner: str, repo: str, pr_number: int) -> dict[str, Any]:
+        """Get merge status information for a pull request.
+
+        Returns:
+            Dictionary with mergeable, mergeable_state, and other PR status info
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            pr_data = response.json()
+
+            return {
+                "mergeable": pr_data.get("mergeable"),
+                "mergeable_state": pr_data.get("mergeable_state"),
+                "state": pr_data.get("state"),
+                "draft": pr_data.get("draft", False),
+                "base_ref": pr_data.get("base", {}).get("ref"),
+                "head_ref": pr_data.get("head", {}).get("ref"),
+            }
+        except requests.RequestException as e:
+            raise ValueError(f"Failed to get PR {pr_number} merge status: {e}")
+
     def get_branch_head_sha(self, owner: str, repo: str, branch_name: str) -> str:
         """Get the head commit SHA for a branch."""
         url = f"https://api.github.com/repos/{owner}/{repo}/branches/{branch_name}"

@@ -78,7 +78,7 @@ class TestGetTargetInfoWithRepo:
         mock_fetcher = Mock()
         mock_fetcher.get_pr_head_sha.return_value = "abc123"
 
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             mock_fetcher, "test/repo", None, None, "1", False
         )
 
@@ -86,6 +86,7 @@ class TestGetTargetInfoWithRepo:
         assert repo_name == "repo"
         assert commit_sha == "abc123"
         assert target_description == "PR #1 in test/repo"
+        assert pr_number == 1
         mock_fetcher.get_pr_head_sha.assert_called_once_with("test", "repo", 1)
 
     def test_get_target_info_with_repo_and_branch(self):
@@ -93,7 +94,7 @@ class TestGetTargetInfoWithRepo:
         mock_fetcher = Mock()
         mock_fetcher.get_branch_head_sha.return_value = "def456"
 
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             mock_fetcher, "test/repo", "main", None, None, False
         )
 
@@ -101,6 +102,7 @@ class TestGetTargetInfoWithRepo:
         assert repo_name == "repo"
         assert commit_sha == "def456"
         assert target_description == "branch main in test/repo"
+        assert pr_number is None
         mock_fetcher.get_branch_head_sha.assert_called_once_with("test", "repo", "main")
 
     def test_get_target_info_repo_overrides_pr_url(self):
@@ -108,7 +110,7 @@ class TestGetTargetInfoWithRepo:
         mock_fetcher = Mock()
         mock_fetcher.get_pr_head_sha.return_value = "abc123"
 
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             mock_fetcher,
             "override/repo",
             None,
@@ -121,6 +123,7 @@ class TestGetTargetInfoWithRepo:
         assert repo_name == "repo"
         assert commit_sha == "abc123"
         assert target_description == "PR #1 in override/repo"
+        assert pr_number == 1
         # Should call with the override repo, not the original from URL
         mock_fetcher.get_pr_head_sha.assert_called_once_with("override", "repo", 1)
 
@@ -129,7 +132,7 @@ class TestGetTargetInfoWithRepo:
         mock_fetcher = Mock()
         mock_fetcher.get_pr_head_sha.return_value = "abc123"
 
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             mock_fetcher, None, None, None, "https://github.com/original/repo/pull/1", False
         )
 
@@ -137,6 +140,7 @@ class TestGetTargetInfoWithRepo:
         assert repo_name == "repo"
         assert commit_sha == "abc123"
         assert target_description == "PR #1 in original/repo"
+        assert pr_number == 1
         mock_fetcher.get_pr_head_sha.assert_called_once_with("original", "repo", 1)
 
     def test_get_target_info_fallback_to_current_repo(self):
@@ -145,7 +149,7 @@ class TestGetTargetInfoWithRepo:
         mock_fetcher.get_repo_info.return_value = ("current", "repo")
         mock_fetcher.get_pr_head_sha.return_value = "abc123"
 
-        owner, repo_name, commit_sha, target_description = get_target_info(
+        owner, repo_name, commit_sha, target_description, pr_number = get_target_info(
             mock_fetcher, None, None, None, "1", False
         )
 
@@ -153,5 +157,6 @@ class TestGetTargetInfoWithRepo:
         assert repo_name == "repo"
         assert commit_sha == "abc123"
         assert target_description == "PR #1"
+        assert pr_number == 1
         mock_fetcher.get_repo_info.assert_called_once()
         mock_fetcher.get_pr_head_sha.assert_called_once_with("current", "repo", 1)
